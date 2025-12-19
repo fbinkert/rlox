@@ -1,4 +1,5 @@
 use clap::{Parser, Subcommand};
+use rlox::run;
 use rlox::scanner::Scanner;
 use std::io::{self, Write};
 use std::path::{Path, PathBuf};
@@ -19,6 +20,11 @@ enum Commands {
         #[arg(value_name = "PATH")]
         path: Option<PathBuf>,
     },
+
+    lex {
+        #[arg(value_name = "PATH")]
+        path: PathBuf,
+    },
 }
 
 fn main() {
@@ -30,6 +36,13 @@ fn main() {
             } else {
                 run_prompt()
             }
+        }
+        Commands::lex { path } => {
+            let source = std::fs::read_to_string(path).unwrap();
+            Scanner::new(&source).for_each(|token| match token {
+                Ok(token) => println!("{:?}", token),
+                Err(err) => println!("{}", err),
+            });
         }
     }
 }
@@ -60,14 +73,5 @@ pub fn run_prompt() {
         }
 
         run(src);
-    }
-}
-
-pub fn run(src: &str) {
-    let scanner = Scanner::new();
-    let tokens = scanner.scan_tokens(src);
-
-    for token in tokens {
-        println!("{:?}", token);
     }
 }
