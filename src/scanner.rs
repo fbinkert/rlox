@@ -36,59 +36,54 @@ impl<'src> Scanner<'src> {
             char_str,
         })
     }
-
-    fn next_inner(&mut self) -> Option<Result<Token<'src>, String>> {
-        let bump = self.advance()?;
-
-        if bump.char.is_whitespace() {
-            return self.next_inner();
-        }
-
-        enum Started {
-            IfEqualThenElse(TokenKind, TokenKind),
-        }
-
-        let just = move |kind: TokenKind| Some(Ok(Token::new(kind, bump.char_str, bump.char_at)));
-
-        let started = match bump.char {
-            '(' => return just(TokenKind::LeftParen),
-            ')' => return just(TokenKind::RightParen),
-            '{' => return just(TokenKind::LeftBrace),
-            '}' => return just(TokenKind::RightBrace),
-            ',' => return just(TokenKind::Comma),
-            '.' => return just(TokenKind::Dot),
-            '-' => return just(TokenKind::Minus),
-            '+' => return just(TokenKind::Plus),
-            ';' => return just(TokenKind::Semicolon),
-            '*' => return just(TokenKind::Star),
-            '!' => Started::IfEqualThenElse(TokenKind::BangEqual, TokenKind::Bang),
-            '=' => Started::IfEqualThenElse(TokenKind::EqualEqual, TokenKind::Equal),
-            '<' => Started::IfEqualThenElse(TokenKind::LessEqual, TokenKind::Less),
-            '>' => Started::IfEqualThenElse(TokenKind::GreaterEqual, TokenKind::Greater),
-            _ => return Some(Err(format!("Unexpected character '{}'", bump.char))),
-        };
-
-        match started {
-            Started::IfEqualThenElse(then, else_) => {
-                if self.rest.starts_with("=") {
-                    let start_offset = bump.char_at;
-                    self.advance(); // consume '='
-                    let lexeme = &self.source[start_offset..self.offset];
-                    Some(Ok(Token::new(then, lexeme, start_offset)))
-                } else {
-                    just(else_)
-                }
-            }
-            _ => panic!(),
-        }
-    }
 }
 
 impl<'src> Iterator for Scanner<'src> {
     type Item = Result<Token<'src>, String>;
 
     fn next(&mut self) -> Option<Self::Item> {
-        self.next_inner()
+        loop {
+            let bump = self.advance()?;
+
+            enum Started {
+                IfEqualThenElse(TokenKind, TokenKind),
+            }
+
+            let just =
+                move |kind: TokenKind| Some(Ok(Token::new(kind, bump.char_str, bump.char_at)));
+
+            let started = match bump.char {
+                '(' => return just(TokenKind::LeftParen),
+                ')' => return just(TokenKind::RightParen),
+                '{' => return just(TokenKind::LeftBrace),
+                '}' => return just(TokenKind::RightBrace),
+                ',' => return just(TokenKind::Comma),
+                '.' => return just(TokenKind::Dot),
+                '-' => return just(TokenKind::Minus),
+                '+' => return just(TokenKind::Plus),
+                ';' => return just(TokenKind::Semicolon),
+                '*' => return just(TokenKind::Star),
+                '!' => Started::IfEqualThenElse(TokenKind::BangEqual, TokenKind::Bang),
+                '=' => Started::IfEqualThenElse(TokenKind::EqualEqual, TokenKind::Equal),
+                '<' => Started::IfEqualThenElse(TokenKind::LessEqual, TokenKind::Less),
+                '>' => Started::IfEqualThenElse(TokenKind::GreaterEqual, TokenKind::Greater),
+                c if c.is_whitespace() => continue,
+                _ => return Some(Err(format!("Unexpected character '{}'", bump.char))),
+            };
+
+            break match started {
+                Started::IfEqualThenElse(then, else_) => {
+                    if self.rest.starts_with("=") {
+                        let start_offset = bump.char_at;
+                        self.advance(); // consume '='
+                        let lexeme = &self.source[start_offset..self.offset];
+                        Some(Ok(Token::new(then, lexeme, start_offset)))
+                    } else {
+                        just(else_)
+                    }
+                }
+            };
+        }
     }
 }
 
