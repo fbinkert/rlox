@@ -4,6 +4,7 @@ pub struct Scanner<'src> {
     source: &'src str,
     rest: &'src str,
     offset: usize,
+    reached_eof: bool,
 }
 
 impl<'src> Scanner<'src> {
@@ -12,6 +13,7 @@ impl<'src> Scanner<'src> {
             source,
             rest: source,
             offset: 0,
+            reached_eof: false,
         }
     }
 }
@@ -37,14 +39,14 @@ impl<'src> Scanner<'src> {
         })
     }
 
-    fn skip_whitespace(&mut self) {
+    fn skip_whitespace_and_comments(&mut self) {
         loop {
             match self.rest.chars().next() {
                 Some(c) if c.is_whitespace() => {
                     self.advance();
                 }
                 Some('/') if self.rest.starts_with("//") => {
-                    while !self.rest.starts_with('\n') {
+                    while !self.rest.starts_with('\n') && !self.rest.is_empty() {
                         self.advance();
                     }
                 }
@@ -58,9 +60,19 @@ impl<'src> Iterator for Scanner<'src> {
     type Item = Result<Token<'src>, String>;
 
     fn next(&mut self) -> Option<Self::Item> {
-        self.skip_whitespace();
+        self.skip_whitespace_and_comments();
 
-        let bump = self.advance()?;
+        if self.reached_eof {
+            return None;
+        }
+
+        let bump = match self.advance() {
+            Some(bump) => bump,
+            None => {
+                self.reached_eof = true;
+                return Some(Ok(Token::new(TokenKind::EOF, "", self.offset)));
+            }
+        };
 
         enum Started {
             IfEqualThenElse(TokenKind, TokenKind),
@@ -80,6 +92,7 @@ impl<'src> Iterator for Scanner<'src> {
             '+' => return token_result(TokenKind::Plus),
             ';' => return token_result(TokenKind::Semicolon),
             '*' => return token_result(TokenKind::Star),
+            '/' => return token_result(TokenKind::Slash),
             '!' => Started::IfEqualThenElse(TokenKind::BangEqual, TokenKind::Bang),
             '=' => Started::IfEqualThenElse(TokenKind::EqualEqual, TokenKind::Equal),
             '<' => Started::IfEqualThenElse(TokenKind::LessEqual, TokenKind::Less),
@@ -131,6 +144,7 @@ mod tests {
             TokenKind::Plus,
             TokenKind::Semicolon,
             TokenKind::Star,
+            TokenKind::EOF,
         ];
         assert_eq!(scan_to_list(source), expected);
     }
@@ -147,7 +161,16 @@ mod tests {
             TokenKind::LessEqual,
             TokenKind::Greater,
             TokenKind::GreaterEqual,
+            TokenKind::EOF,
         ];
+
+        assert_eq!(scan_to_list(source), expected);
+    }
+
+    #[test]
+    fn test_comments() {
+        let source = "// this is a comment";
+        let expected = vec![TokenKind::EOF];
 
         assert_eq!(scan_to_list(source), expected);
     }
