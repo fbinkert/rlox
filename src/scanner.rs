@@ -1,5 +1,3 @@
-use std::env::split_paths;
-
 use crate::token::{Token, TokenKind};
 
 pub struct Scanner<'src> {
@@ -126,7 +124,7 @@ impl<'src> Iterator for Scanner<'src> {
             }
             Started::String => {
                 if let Some(end_offset) = self.rest.find('"') {
-                    let start_offset = self.offset;
+                    let start_offset = bump.char_at + 1; // without starting quote
                     let lexeme = &self.rest[1..end_offset]; // without surrounding quotes
 
                     self.skip_ahead(end_offset);
@@ -137,29 +135,35 @@ impl<'src> Iterator for Scanner<'src> {
                 }
             }
             Started::Number => {
-                let end_offset = self
+                let start_offset = bump.char_at;
+
+                let int_len = self
                     .rest
-                    .find(|c: char| !(c == '.' || c.is_ascii_digit()))
+                    .find(|c: char| !c.is_ascii_digit())
                     .unwrap_or(self.rest.len());
 
-                let literal = &self.source[bump.char_at..(bump.char_at + end_offset + 1)];
-                let mut split = literal.splitn(3, '.');
-                let lexeme = match (split.next(), split.next(), split.next()) {
-                    (Some(int_part), Some(""), _) => &literal[..int_part.len()],
+                self.skip_ahead(int_len);
 
-                    (Some(int_part), Some(decimal_part), _) => {
-                        &literal[..int_part.len() + 1 + decimal_part.len()]
-                    }
-                    _ => literal,
-                };
+                let has_fraction = self.rest.starts_with('.')
+                    && self.rest.chars().next().is_some_and(|c| c.is_ascii_digit());
 
-                let start_offset = self.offset;
+                if has_fraction {
+                    self.advance(); // Consume the '.'
+
+                    let frac_len = self
+                        .rest
+                        .find(|c: char| !c.is_ascii_digit())
+                        .unwrap_or(self.rest.len());
+
+                    self.skip_ahead(frac_len);
+                }
+
+                let lexeme = &self.source[start_offset..self.offset];
+
                 let number = match lexeme.parse::<f64>() {
                     Ok(n) => n,
-                    Err(_) => return Some(Err("Invalid number".to_string())),
+                    Err(_) => return Some(Err(format!("Invalid number literal: {}", lexeme))),
                 };
-
-                self.skip_ahead(lexeme.len() - 1);
 
                 Some(Ok(Token::new(
                     TokenKind::Number(number),
@@ -196,7 +200,7 @@ impl<'src> Iterator for Scanner<'src> {
                     _ => TokenKind::Identifier,
                 };
 
-                let start_offset = self.offset;
+                let start_offset = bump.char_at;
                 self.skip_ahead(lexeme.len() - 1);
                 Some(Ok(Token::new(kind, lexeme, start_offset)))
             }
@@ -302,6 +306,32 @@ mod tests {
             TokenKind::EOF,
         ];
 
+        assert_eq!(scan_to_list(source), expected);
+    }
+
+    #[test]
+    fn test_number_with_trailing_dot() {
+        let source = "123.";
+        let expected = vec![TokenKind::Number(123.0), TokenKind::Dot, TokenKind::EOF];
+        assert_eq!(scan_to_list(source), expected);
+    }
+
+    #[test]
+    fn test_number_method_call() {
+        let source = "123.toString";
+        let expected = vec![
+            TokenKind::Number(123.0),
+            TokenKind::Dot,
+            TokenKind::Identifier,
+            TokenKind::EOF,
+        ];
+        assert_eq!(scan_to_list(source), expected);
+    }
+
+    #[test]
+    fn test_standard_float() {
+        let source = "123.456";
+        let expected = vec![TokenKind::Number(123.456), TokenKind::EOF];
         assert_eq!(scan_to_list(source), expected);
     }
 }
