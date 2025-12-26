@@ -187,6 +187,14 @@ mod tests {
     }
 
     #[test]
+    fn test_ignore_whitespace() {
+        let source = " \t\n\r\n";
+        let expected = vec![TokenKind::EOF];
+
+        assert_eq!(scan_to_list(source), expected);
+    }
+
+    #[test]
     fn test_comments() {
         let source = "// this is a comment";
         let expected = vec![TokenKind::EOF];
