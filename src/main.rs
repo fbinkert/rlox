@@ -21,7 +21,7 @@ enum Commands {
         path: Option<PathBuf>,
     },
 
-    lex {
+    Lex {
         #[arg(value_name = "PATH")]
         path: PathBuf,
     },
@@ -37,7 +37,7 @@ fn main() {
                 run_prompt()
             }
         }
-        Commands::lex { path } => {
+        Commands::Lex { path } => {
             let source = std::fs::read_to_string(path).unwrap();
             Scanner::new(&source).for_each(|token| match token {
                 Ok(token) => println!("{:?}", token),

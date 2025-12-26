@@ -36,53 +36,68 @@ impl<'src> Scanner<'src> {
             char_str,
         })
     }
+
+    fn skip_whitespace(&mut self) {
+        loop {
+            match self.rest.chars().next() {
+                Some(c) if c.is_whitespace() => {
+                    self.advance();
+                }
+                Some('/') if self.rest.starts_with("//") => {
+                    while !self.rest.starts_with('\n') {
+                        self.advance();
+                    }
+                }
+                _ => break,
+            }
+        }
+    }
 }
 
 impl<'src> Iterator for Scanner<'src> {
     type Item = Result<Token<'src>, String>;
 
     fn next(&mut self) -> Option<Self::Item> {
-        loop {
-            let bump = self.advance()?;
+        self.skip_whitespace();
 
-            enum Started {
-                IfEqualThenElse(TokenKind, TokenKind),
-            }
+        let bump = self.advance()?;
 
-            let just =
-                move |kind: TokenKind| Some(Ok(Token::new(kind, bump.char_str, bump.char_at)));
+        enum Started {
+            IfEqualThenElse(TokenKind, TokenKind),
+        }
 
-            let started = match bump.char {
-                '(' => return just(TokenKind::LeftParen),
-                ')' => return just(TokenKind::RightParen),
-                '{' => return just(TokenKind::LeftBrace),
-                '}' => return just(TokenKind::RightBrace),
-                ',' => return just(TokenKind::Comma),
-                '.' => return just(TokenKind::Dot),
-                '-' => return just(TokenKind::Minus),
-                '+' => return just(TokenKind::Plus),
-                ';' => return just(TokenKind::Semicolon),
-                '*' => return just(TokenKind::Star),
-                '!' => Started::IfEqualThenElse(TokenKind::BangEqual, TokenKind::Bang),
-                '=' => Started::IfEqualThenElse(TokenKind::EqualEqual, TokenKind::Equal),
-                '<' => Started::IfEqualThenElse(TokenKind::LessEqual, TokenKind::Less),
-                '>' => Started::IfEqualThenElse(TokenKind::GreaterEqual, TokenKind::Greater),
-                c if c.is_whitespace() => continue,
-                _ => return Some(Err(format!("Unexpected character '{}'", bump.char))),
-            };
+        let token_result =
+            move |kind: TokenKind| Some(Ok(Token::new(kind, bump.char_str, bump.char_at)));
 
-            break match started {
-                Started::IfEqualThenElse(then, else_) => {
-                    if self.rest.starts_with("=") {
-                        let start_offset = bump.char_at;
-                        self.advance(); // consume '='
-                        let lexeme = &self.source[start_offset..self.offset];
-                        Some(Ok(Token::new(then, lexeme, start_offset)))
-                    } else {
-                        just(else_)
-                    }
+        let started = match bump.char {
+            '(' => return token_result(TokenKind::LeftParen),
+            ')' => return token_result(TokenKind::RightParen),
+            '{' => return token_result(TokenKind::LeftBrace),
+            '}' => return token_result(TokenKind::RightBrace),
+            ',' => return token_result(TokenKind::Comma),
+            '.' => return token_result(TokenKind::Dot),
+            '-' => return token_result(TokenKind::Minus),
+            '+' => return token_result(TokenKind::Plus),
+            ';' => return token_result(TokenKind::Semicolon),
+            '*' => return token_result(TokenKind::Star),
+            '!' => Started::IfEqualThenElse(TokenKind::BangEqual, TokenKind::Bang),
+            '=' => Started::IfEqualThenElse(TokenKind::EqualEqual, TokenKind::Equal),
+            '<' => Started::IfEqualThenElse(TokenKind::LessEqual, TokenKind::Less),
+            '>' => Started::IfEqualThenElse(TokenKind::GreaterEqual, TokenKind::Greater),
+            _ => return Some(Err(format!("Unexpected character '{}'", bump.char))),
+        };
+
+        match started {
+            Started::IfEqualThenElse(then, else_) => {
+                if self.rest.starts_with("=") {
+                    let start_offset = bump.char_at;
+                    self.advance(); // consume '='
+                    let lexeme = &self.source[start_offset..self.offset];
+                    Some(Ok(Token::new(then, lexeme, start_offset)))
+                } else {
+                    token_result(else_)
                 }
-            };
+            }
         }
     }
 }
