@@ -85,6 +85,7 @@ impl<'src> Iterator for Scanner<'src> {
             IfEqualThenElse(TokenKind, TokenKind),
             String,
             Number,
+            Ident,
         }
 
         let token_result =
@@ -107,6 +108,7 @@ impl<'src> Iterator for Scanner<'src> {
             '<' => Started::IfEqualThenElse(TokenKind::LessEqual, TokenKind::Less),
             '>' => Started::IfEqualThenElse(TokenKind::GreaterEqual, TokenKind::Greater),
             '"' => Started::String,
+            'a'..='z' | 'A'..='Z' | '_' => Started::Ident,
             '0'..='9' => Started::Number,
             _ => return Some(Err(format!("Unexpected character '{}'", bump.char))),
         };
@@ -164,6 +166,39 @@ impl<'src> Iterator for Scanner<'src> {
                     lexeme,
                     start_offset,
                 )))
+            }
+
+            Started::Ident => {
+                let end_offset = self
+                    .rest
+                    .find(|c: char| !(c.is_ascii_alphanumeric() || c == '_'))
+                    .unwrap_or(self.rest.len());
+
+                let lexeme = &self.source[bump.char_at..(bump.char_at + end_offset + 1)];
+
+                let kind = match lexeme {
+                    "and" => TokenKind::And,
+                    "class" => TokenKind::Class,
+                    "else" => TokenKind::Else,
+                    "false" => TokenKind::False,
+                    "for" => TokenKind::For,
+                    "fun" => TokenKind::Fun,
+                    "if" => TokenKind::If,
+                    "nil" => TokenKind::Nil,
+                    "or" => TokenKind::Or,
+                    "print" => TokenKind::Print,
+                    "return" => TokenKind::Return,
+                    "super" => TokenKind::Super,
+                    "this" => TokenKind::This,
+                    "true" => TokenKind::True,
+                    "var" => TokenKind::Var,
+                    "while" => TokenKind::While,
+                    _ => TokenKind::Identifier,
+                };
+
+                let start_offset = self.offset;
+                self.skip_ahead(lexeme.len() - 1);
+                Some(Ok(Token::new(kind, lexeme, start_offset)))
             }
         }
     }
@@ -251,6 +286,19 @@ mod tests {
         let expected = vec![
             TokenKind::Number(123.0),
             TokenKind::Number(123.456),
+            TokenKind::EOF,
+        ];
+
+        assert_eq!(scan_to_list(source), expected);
+    }
+
+    #[test]
+    fn test_ident() {
+        let source = "and if else";
+        let expected = vec![
+            TokenKind::And,
+            TokenKind::If,
+            TokenKind::Else,
             TokenKind::EOF,
         ];
 
