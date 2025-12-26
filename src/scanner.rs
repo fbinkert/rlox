@@ -39,6 +39,11 @@ impl<'src> Scanner<'src> {
         })
     }
 
+    fn skip_ahead(&mut self, count: usize) {
+        self.rest = self.rest.split_at(count).1;
+        self.offset += count;
+    }
+
     fn skip_whitespace_and_comments(&mut self) {
         loop {
             match self.rest.chars().next() {
@@ -76,6 +81,7 @@ impl<'src> Iterator for Scanner<'src> {
 
         enum Started {
             IfEqualThenElse(TokenKind, TokenKind),
+            String,
         }
 
         let token_result =
@@ -97,6 +103,7 @@ impl<'src> Iterator for Scanner<'src> {
             '=' => Started::IfEqualThenElse(TokenKind::EqualEqual, TokenKind::Equal),
             '<' => Started::IfEqualThenElse(TokenKind::LessEqual, TokenKind::Less),
             '>' => Started::IfEqualThenElse(TokenKind::GreaterEqual, TokenKind::Greater),
+            '"' => Started::String,
             _ => return Some(Err(format!("Unexpected character '{}'", bump.char))),
         };
 
@@ -109,6 +116,18 @@ impl<'src> Iterator for Scanner<'src> {
                     Some(Ok(Token::new(then, lexeme, start_offset)))
                 } else {
                     token_result(else_)
+                }
+            }
+            Started::String => {
+                if let Some(end_offset) = self.rest.find('"') {
+                    let start_offset = self.offset;
+                    let lexeme = &self.rest[1..end_offset]; // without surrounding quotes
+
+                    self.skip_ahead(end_offset);
+                    self.advance(); // consume the closing quote
+                    Some(Ok(Token::new(TokenKind::String, lexeme, start_offset)))
+                } else {
+                    Some(Err("Unterminated string".to_string()))
                 }
             }
         }
@@ -171,6 +190,14 @@ mod tests {
     fn test_comments() {
         let source = "// this is a comment";
         let expected = vec![TokenKind::EOF];
+
+        assert_eq!(scan_to_list(source), expected);
+    }
+
+    #[test]
+    fn test_string_literals() {
+        let source = "\"this is a string\" \"this is another string\"";
+        let expected = vec![TokenKind::String, TokenKind::String, TokenKind::EOF];
 
         assert_eq!(scan_to_list(source), expected);
     }
