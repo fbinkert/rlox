@@ -110,7 +110,7 @@ impl<'src> Scanner<'src> {
 impl<'src> Scanner<'src> {
     fn scan_string_literal(&mut self, start_offset: usize) -> Option<Result<Token<'src>, String>> {
         if let Some(byte_length) = self.rest.find('"') {
-            let start_content = self.byte_offset + 1; // without starting quote
+            let start_content = self.byte_offset; // without starting quote
             let end_content = self.byte_offset + byte_length; // without ending quote
             let lexeme = &self.source[start_content..end_content];
 
