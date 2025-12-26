@@ -1,3 +1,5 @@
+use std::env::split_paths;
+
 use crate::token::{Token, TokenKind};
 
 pub struct Scanner<'src> {
@@ -82,6 +84,7 @@ impl<'src> Iterator for Scanner<'src> {
         enum Started {
             IfEqualThenElse(TokenKind, TokenKind),
             String,
+            Number,
         }
 
         let token_result =
@@ -104,6 +107,7 @@ impl<'src> Iterator for Scanner<'src> {
             '<' => Started::IfEqualThenElse(TokenKind::LessEqual, TokenKind::Less),
             '>' => Started::IfEqualThenElse(TokenKind::GreaterEqual, TokenKind::Greater),
             '"' => Started::String,
+            '0'..='9' => Started::Number,
             _ => return Some(Err(format!("Unexpected character '{}'", bump.char))),
         };
 
@@ -129,6 +133,37 @@ impl<'src> Iterator for Scanner<'src> {
                 } else {
                     Some(Err("Unterminated string".to_string()))
                 }
+            }
+            Started::Number => {
+                let end_offset = self
+                    .rest
+                    .find(|c: char| !(c == '.' || c.is_ascii_digit()))
+                    .unwrap_or(self.rest.len());
+
+                let literal = &self.source[bump.char_at..(bump.char_at + end_offset + 1)];
+                let mut split = literal.splitn(3, '.');
+                let lexeme = match (split.next(), split.next(), split.next()) {
+                    (Some(int_part), Some(""), _) => &literal[..int_part.len()],
+
+                    (Some(int_part), Some(decimal_part), _) => {
+                        &literal[..int_part.len() + 1 + decimal_part.len()]
+                    }
+                    _ => literal,
+                };
+
+                let start_offset = self.offset;
+                let number = match lexeme.parse::<f64>() {
+                    Ok(n) => n,
+                    Err(_) => return Some(Err("Invalid number".to_string())),
+                };
+
+                self.skip_ahead(lexeme.len() - 1);
+
+                Some(Ok(Token::new(
+                    TokenKind::Number(number),
+                    lexeme,
+                    start_offset,
+                )))
             }
         }
     }
@@ -206,6 +241,18 @@ mod tests {
     fn test_string_literals() {
         let source = "\"this is a string\" \"this is another string\"";
         let expected = vec![TokenKind::String, TokenKind::String, TokenKind::EOF];
+
+        assert_eq!(scan_to_list(source), expected);
+    }
+
+    #[test]
+    fn test_number() {
+        let source = "123 123.456";
+        let expected = vec![
+            TokenKind::Number(123.0),
+            TokenKind::Number(123.456),
+            TokenKind::EOF,
+        ];
 
         assert_eq!(scan_to_list(source), expected);
     }
