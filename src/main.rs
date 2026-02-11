@@ -32,26 +32,31 @@ fn main() {
     match cli.command {
         Commands::Run { path } => {
             if let Some(path) = path {
-                run_file(&path)
+                run_file(&path);
             } else {
-                run_prompt()
+                run_prompt();
             }
         }
         Commands::Lex { path } => {
             let source = std::fs::read_to_string(path).unwrap();
             Scanner::new(&source).for_each(|token| match token {
-                Ok(token) => println!("{:?}", token),
-                Err(err) => println!("{}", err),
+                Ok(token) => println!("{token:?}"),
+                Err(err) => println!("{err}"),
             });
         }
     }
 }
 
+/// # Panics
+/// If the contents of the file are not valid UTF-8
 pub fn run_file(path: &Path) {
     let source = std::fs::read_to_string(path).unwrap();
     run(&source);
 }
 
+/// # Panics
+/// It is considered an error if not all bytes could be written due to
+/// I/O errors or EOF being reached.
 pub fn run_prompt() {
     println!("Lox REPL. Press Ctrl+D to exit.");
     let stdin = io::stdin();

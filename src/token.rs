@@ -51,7 +51,7 @@ pub enum TokenKind {
     EOF,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Token<'src> {
     pub kind: TokenKind,
     pub lexeme: &'src str,
@@ -59,7 +59,8 @@ pub struct Token<'src> {
 }
 
 impl<'src> Token<'src> {
-    pub fn new(kind: TokenKind, lexeme: &'src str, offset: usize) -> Token<'src> {
+    #[must_use]
+    pub const fn new(kind: TokenKind, lexeme: &'src str, offset: usize) -> Self {
         Token {
             kind,
             lexeme,
@@ -70,7 +71,12 @@ impl<'src> Token<'src> {
 
 impl Display for Token<'_> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        use TokenKind::*;
+        use TokenKind::{
+            And, Bang, BangEqual, Class, Comma, Dot, EOF, Else, Equal, EqualEqual, False, For, Fun,
+            Greater, GreaterEqual, Identifier, If, LeftBrace, LeftParen, Less, LessEqual, Minus,
+            Nil, Number, Or, Plus, Print, Return, RightBrace, RightParen, Semicolon, Slash, Star,
+            String, Super, This, True, Var, While,
+        };
         match self.kind {
             LeftParen => write!(f, "LEFT_PAREN {}", self.lexeme),
             RightParen => write!(f, "RIGHT_PAREN {}", self.lexeme),
