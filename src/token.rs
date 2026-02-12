@@ -49,6 +49,9 @@ pub enum TokenKind {
     While,
 
     EOF,
+
+    // Special
+    Error(&'static str),
 }
 
 #[derive(Debug, Clone)]
@@ -72,10 +75,10 @@ impl<'src> Token<'src> {
 impl Display for Token<'_> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         use TokenKind::{
-            And, Bang, BangEqual, Class, Comma, Dot, EOF, Else, Equal, EqualEqual, False, For, Fun,
-            Greater, GreaterEqual, Identifier, If, LeftBrace, LeftParen, Less, LessEqual, Minus,
-            Nil, Number, Or, Plus, Print, Return, RightBrace, RightParen, Semicolon, Slash, Star,
-            String, Super, This, True, Var, While,
+            And, Bang, BangEqual, Class, Comma, Dot, EOF, Else, Equal, EqualEqual, Error, False,
+            For, Fun, Greater, GreaterEqual, Identifier, If, LeftBrace, LeftParen, Less, LessEqual,
+            Minus, Nil, Number, Or, Plus, Print, Return, RightBrace, RightParen, Semicolon, Slash,
+            Star, String, Super, This, True, Var, While,
         };
         match self.kind {
             LeftParen => write!(f, "LEFT_PAREN {}", self.lexeme),
@@ -124,6 +127,7 @@ impl Display for Token<'_> {
             While => write!(f, "WHILE {}", self.lexeme),
 
             EOF => write!(f, "EOF {}", self.lexeme),
+            Error(err) => write!(f, "ERROR {} {}", self.lexeme, err),
         }
     }
 }

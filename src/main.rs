@@ -39,9 +39,9 @@ fn main() {
         }
         Commands::Lex { path } => {
             let source = std::fs::read_to_string(path).unwrap();
-            Scanner::new(&source).for_each(|token| match token {
-                Ok(token) => println!("{token:?}"),
-                Err(err) => println!("{err}"),
+
+            Scanner::new(&source).for_each(|token| {
+                println!("{token:?}");
             });
         }
     }

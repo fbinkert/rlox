@@ -41,10 +41,12 @@ impl<'src> Scanner<'src> {
 
     /// Consumes the next character and returns it
     fn advance(&mut self) -> Option<char> {
-        let c = self.rest.chars().next()?;
-        self.rest = self.rest.split_at(c.len_utf8()).1;
-        self.byte_offset += c.len_utf8();
-        Some(c)
+        if let Some(c) = self.rest.chars().next() {
+            self.rest = self.rest.split_at(c.len_utf8()).1;
+            self.byte_offset += c.len_utf8();
+            return Some(c);
+        }
+        None
     }
 
     /// Conditional advance
@@ -111,7 +113,7 @@ impl<'src> Scanner<'src> {
 }
 
 impl<'src> Scanner<'src> {
-    fn scan_string_literal(&mut self, start_offset: usize) -> Result<Token<'src>, String> {
+    fn scan_string_literal(&mut self, start_offset: usize) -> Token<'src> {
         if let Some(byte_length) = self.rest.find('"') {
             let start_content = self.byte_offset; // without starting quote
             let end_content = self.byte_offset + byte_length; // without ending quote
@@ -120,13 +122,13 @@ impl<'src> Scanner<'src> {
             let advance_by = byte_length + 1;
             self.byte_offset += advance_by;
             self.rest = &self.rest[advance_by..];
-            Ok(Token::new(TokenKind::String, lexeme, start_offset))
+            Token::new(TokenKind::String, lexeme, start_offset)
         } else {
-            Err("Unterminated string".to_string())
+            Token::new(TokenKind::Error("Unterminated string"), "", start_offset)
         }
     }
 
-    fn scan_number(&mut self, start_offset: usize) -> Result<Token<'src>, String> {
+    fn scan_number(&mut self, start_offset: usize) -> Token<'src> {
         self.consume_digits();
 
         if let Some(c) = self.peek_next()
@@ -140,10 +142,14 @@ impl<'src> Scanner<'src> {
         let lexeme = &self.source[start_offset..self.byte_offset];
 
         let Ok(number) = lexeme.parse::<f64>() else {
-            return Err(format!("Invalid number literal: {lexeme}"));
+            return Token::new(
+                TokenKind::Error("Invalid number literal"),
+                lexeme,
+                start_offset,
+            );
         };
 
-        Ok(Token::new(TokenKind::Number(number), lexeme, start_offset))
+        Token::new(TokenKind::Number(number), lexeme, start_offset)
     }
 
     fn scan_ident(&mut self, start_offset: usize) -> Token<'src> {
@@ -151,6 +157,15 @@ impl<'src> Scanner<'src> {
         let lexeme = &self.source[start_offset..self.byte_offset];
         let kind = Self::get_keyword_kind(lexeme).unwrap_or(TokenKind::Identifier);
         Token::new(kind, lexeme, start_offset)
+    }
+
+    fn scan_unknown_character(&self, start_offset: usize) -> Token<'src> {
+        let lexeme = &self.source[start_offset..self.byte_offset];
+        Token::new(
+            TokenKind::Error("Unexpected character"),
+            lexeme,
+            start_offset,
+        )
     }
 
     fn get_keyword_kind(lexeme: &str) -> Option<TokenKind> {
@@ -177,7 +192,7 @@ impl<'src> Scanner<'src> {
 }
 
 impl<'src> Iterator for Scanner<'src> {
-    type Item = Result<Token<'src>, String>;
+    type Item = Token<'src>;
 
     fn next(&mut self) -> Option<Self::Item> {
         self.skip_whitespace();
@@ -191,31 +206,32 @@ impl<'src> Iterator for Scanner<'src> {
                 return None;
             }
             self.eof_emitted = true;
-            return Some(Ok(Token::new(TokenKind::EOF, "", self.byte_offset)));
+            return Some(Token::new(TokenKind::EOF, "", self.byte_offset));
         }
 
         let start_offset = self.byte_offset;
 
         let result = {
-            match self.advance()? {
-                '(' => Ok(self.make_token(TokenKind::LeftParen, start_offset)),
-                ')' => Ok(self.make_token(TokenKind::RightParen, start_offset)),
-                '{' => Ok(self.make_token(TokenKind::LeftBrace, start_offset)),
-                '}' => Ok(self.make_token(TokenKind::RightBrace, start_offset)),
-                ',' => Ok(self.make_token(TokenKind::Comma, start_offset)),
-                '.' => Ok(self.make_token(TokenKind::Dot, start_offset)),
-                '-' => Ok(self.make_token(TokenKind::Minus, start_offset)),
-                '+' => Ok(self.make_token(TokenKind::Plus, start_offset)),
-                ';' => Ok(self.make_token(TokenKind::Semicolon, start_offset)),
-                '*' => Ok(self.make_token(TokenKind::Star, start_offset)),
-                '/' => Ok(self.make_token(TokenKind::Slash, start_offset)),
+            // Safety: Checked is_empty() above
+            match self.advance().unwrap() {
+                '(' => self.make_token(TokenKind::LeftParen, start_offset),
+                ')' => self.make_token(TokenKind::RightParen, start_offset),
+                '{' => self.make_token(TokenKind::LeftBrace, start_offset),
+                '}' => self.make_token(TokenKind::RightBrace, start_offset),
+                ',' => self.make_token(TokenKind::Comma, start_offset),
+                '.' => self.make_token(TokenKind::Dot, start_offset),
+                '-' => self.make_token(TokenKind::Minus, start_offset),
+                '+' => self.make_token(TokenKind::Plus, start_offset),
+                ';' => self.make_token(TokenKind::Semicolon, start_offset),
+                '*' => self.make_token(TokenKind::Star, start_offset),
+                '/' => self.make_token(TokenKind::Slash, start_offset),
                 '!' => {
                     let kind = if self.matches('=') {
                         TokenKind::BangEqual
                     } else {
                         TokenKind::Bang
                     };
-                    Ok(self.make_token(kind, start_offset))
+                    self.make_token(kind, start_offset)
                 }
 
                 '=' => {
@@ -224,7 +240,7 @@ impl<'src> Iterator for Scanner<'src> {
                     } else {
                         TokenKind::Equal
                     };
-                    Ok(self.make_token(kind, start_offset))
+                    self.make_token(kind, start_offset)
                 }
 
                 '>' => {
@@ -233,7 +249,7 @@ impl<'src> Iterator for Scanner<'src> {
                     } else {
                         TokenKind::Greater
                     };
-                    Ok(self.make_token(kind, start_offset))
+                    self.make_token(kind, start_offset)
                 }
 
                 '<' => {
@@ -242,13 +258,13 @@ impl<'src> Iterator for Scanner<'src> {
                     } else {
                         TokenKind::Less
                     };
-                    Ok(self.make_token(kind, start_offset))
+                    self.make_token(kind, start_offset)
                 }
 
                 '"' => self.scan_string_literal(start_offset),
-                'a'..='z' | 'A'..='Z' | '_' => Ok(self.scan_ident(start_offset)),
+                'a'..='z' | 'A'..='Z' | '_' => self.scan_ident(start_offset),
                 '0'..='9' => self.scan_number(start_offset),
-                c => Err(format!("Unexpected character '{c}'")),
+                _ => self.scan_unknown_character(start_offset),
             }
         };
         Some(result)
@@ -262,7 +278,6 @@ mod tests {
     fn scan_to_list(source: &str) -> Vec<TokenKind> {
         let scanner = Scanner::new(source);
         scanner
-            .map(|res| res.expect("Scanner error"))
             .map(|t| {
                 eprintln!("{t}");
                 t.kind
