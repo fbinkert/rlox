@@ -11,7 +11,7 @@ where
 {
     tokens: I,
     current: Token<'src>,
-    previous: Option<Token<'src>>,
+    previous: Token<'src>,
 }
 
 #[derive(Debug)]
@@ -31,8 +31,8 @@ where
             .unwrap_or_else(|| Token::new(TokenKind::EOF, "", 0));
         Self {
             tokens,
+            previous: current.clone(),
             current,
-            previous: None,
         }
     }
 
@@ -174,8 +174,7 @@ where
                     expression: Box::new(expr),
                 });
             }
-            let token = self.advance().clone();
-            return Err(Self::error(&token, "Expect ')' after expression."));
+            return Err(Self::error(self.advance(), "Expect ')' after expression."));
         }
 
         Err(Self::error(self.peek(), "Expect expression."))
@@ -209,15 +208,12 @@ where
     }
 
     fn advance(&mut self) -> &Token<'src> {
-        if !self.is_at_end() {
-            let next_token = self
-                .tokens
-                .next()
-                .unwrap_or_else(|| Token::new(TokenKind::EOF, "", self.current.offset));
+        let next_token = self
+            .tokens
+            .next()
+            .unwrap_or_else(|| Token::new(TokenKind::EOF, "", self.current.offset));
 
-            self.previous = Some(replace(&mut self.current, next_token));
-        }
-
+        self.previous = replace(&mut self.current, next_token);
         self.previous()
     }
 
@@ -230,9 +226,7 @@ where
     }
 
     const fn previous(&self) -> &Token<'src> {
-        self.previous
-            .as_ref()
-            .expect("Iterator should not be empty")
+        &self.previous
     }
 
     fn error(token: &Token<'src>, message: &str) -> ParseError {
