@@ -54,7 +54,7 @@ pub enum TokenKind {
     Error(&'static str),
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Copy, Clone)]
 pub struct Token<'src> {
     pub kind: TokenKind,
     pub lexeme: &'src str,

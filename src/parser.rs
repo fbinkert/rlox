@@ -31,7 +31,7 @@ where
             .unwrap_or_else(|| Token::new(TokenKind::EOF, "", 0));
         Self {
             tokens,
-            previous: current.clone(),
+            previous: current,
             current,
         }
     }
@@ -53,7 +53,7 @@ where
 
         // Equality expression
         while self.match_tokens(&[TokenKind::BangEqual, TokenKind::EqualEqual]) {
-            let operator = self.previous().clone();
+            let operator = self.previous;
             let right = self.comparison()?;
             expr = Expr::Binary {
                 left: Box::new(expr),
@@ -75,7 +75,7 @@ where
             TokenKind::Less,
             TokenKind::LessEqual,
         ]) {
-            let operator = self.previous().clone();
+            let operator = self.previous;
             let right = self.term()?;
             term = Expr::Binary {
                 left: Box::new(term),
@@ -91,7 +91,7 @@ where
         let mut factor = self.factor()?;
 
         while self.match_tokens(&[TokenKind::Minus, TokenKind::Plus]) {
-            let operator = self.previous().clone();
+            let operator = self.previous;
             let right = self.factor()?;
             factor = Expr::Binary {
                 left: Box::new(factor),
@@ -107,7 +107,7 @@ where
         let mut unary = self.unary()?;
 
         while self.match_tokens(&[TokenKind::Slash, TokenKind::Star]) {
-            let operator = self.previous().clone();
+            let operator = self.previous;
             let right = self.unary()?;
             unary = Expr::Binary {
                 left: Box::new(unary),
@@ -122,7 +122,7 @@ where
     // unary ( ( "/" | "*" ) unary )* ;
     fn unary(&mut self) -> Result<Expr<'src>, ParseError> {
         if self.match_tokens(&[TokenKind::Minus, TokenKind::Bang]) {
-            let operator = self.previous().clone();
+            let operator = self.previous;
             let right = self.unary()?;
             return Ok(Expr::Unary {
                 operator,
@@ -150,19 +150,17 @@ where
             });
         }
 
-        if self.match_tokens(&[TokenKind::Number(0.0)]) {
-            let prev = self.previous();
-            if let TokenKind::Number(n) = prev.kind {
-                return Ok(Expr::Literal {
-                    value: Literal::Number(n),
-                });
-            }
+        if self.match_tokens(&[TokenKind::Number(0.0)])
+            && let TokenKind::Number(n) = self.previous.kind
+        {
+            return Ok(Expr::Literal {
+                value: Literal::Number(n),
+            });
         }
 
         if self.match_tokens(&[TokenKind::String]) {
-            let prev = self.previous();
             return Ok(Expr::Literal {
-                value: Literal::String(prev.lexeme.to_string()),
+                value: Literal::String(self.previous.lexeme.to_string()),
             });
         }
 
@@ -207,29 +205,25 @@ where
         }
     }
 
-    fn advance(&mut self) -> &Token<'src> {
+    fn advance(&mut self) -> Token<'src> {
         let next_token = self
             .tokens
             .next()
             .unwrap_or_else(|| Token::new(TokenKind::EOF, "", self.current.offset));
 
         self.previous = replace(&mut self.current, next_token);
-        self.previous()
+        self.previous
     }
 
     fn is_at_end(&self) -> bool {
         self.peek().kind == TokenKind::EOF
     }
 
-    const fn peek(&self) -> &Token<'src> {
-        &self.current
+    const fn peek(&self) -> Token<'src> {
+        self.current
     }
 
-    const fn previous(&self) -> &Token<'src> {
-        &self.previous
-    }
-
-    fn error(token: &Token<'src>, message: &str) -> ParseError {
+    fn error(token: Token<'src>, message: &str) -> ParseError {
         ParseError {
             msg: message.to_string(),
             token_literal: token.lexeme.to_string(),
