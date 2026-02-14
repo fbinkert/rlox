@@ -1,6 +1,9 @@
 use std::mem::replace;
 
+use miette::{SourceOffset, SourceSpan};
+
 use crate::{
+    error::ParseError,
     expression::{Expr, Literal},
     token::{Token, TokenKind},
 };
@@ -12,12 +15,6 @@ where
     tokens: I,
     current: Token<'src>,
     previous: Token<'src>,
-}
-
-#[derive(Debug)]
-pub struct ParseError {
-    pub msg: String,
-    pub token_literal: String,
 }
 
 impl<'src, I> Parser<'src, I>
@@ -51,7 +48,6 @@ where
     fn equality(&mut self) -> Result<Expr<'src>, ParseError> {
         let mut expr = self.comparison()?;
 
-        // Equality expression
         while self.match_tokens(&[TokenKind::BangEqual, TokenKind::EqualEqual]) {
             let operator = self.previous;
             let right = self.comparison()?;
@@ -165,6 +161,8 @@ where
         }
 
         if self.match_tokens(&[TokenKind::LeftParen]) {
+            let left_paren = self.previous;
+
             let expr = self.expression()?;
             if self.check(TokenKind::RightParen) {
                 let _ = self.advance();
@@ -172,10 +170,45 @@ where
                     expression: Box::new(expr),
                 });
             }
-            return Err(Self::error(self.advance(), "Expect ')' after expression."));
-        }
+            let _ = self.advance();
 
-        Err(Self::error(self.peek(), "Expect expression."))
+            return Err(ParseError {
+                msg: "unclosed delimiter".to_string(),
+                span: left_paren.as_span(),
+                help: Some("Expect ')' after expression to close this group.".to_string()),
+            });
+        }
+        let token = self.peek();
+        let lexeme = token.lexeme.to_string();
+        match token.kind {
+            TokenKind::Error(_) => {
+                // Scanner error
+                Err(ParseError {
+                    msg: format!("Unexpected character: '{lexeme}'"),
+                    span: token.as_span(),
+                    help: None,
+                })
+            }
+            TokenKind::EOF => {
+                // Scanner error
+                Err(ParseError {
+                    msg: "Unexpected EOF.".into(),
+                    span: SourceSpan::new(SourceOffset::from(self.previous.offset), 0),
+                    help: Some("The expression is incomplete.".into()),
+                })
+            }
+            _ => {
+                // Scanner error
+                Err(ParseError {
+                    msg: format!("Unexpected token '{lexeme}'. Expected an expression."),
+                    span: self.previous.as_span(),
+                    help: Some(
+                        "Expressions can be numbers, strings, booleans, or parenthesized groups."
+                            .to_string(),
+                    ),
+                })
+            }
+        }
     }
 }
 
@@ -221,13 +254,6 @@ where
 
     const fn peek(&self) -> Token<'src> {
         self.current
-    }
-
-    fn error(token: Token<'src>, message: &str) -> ParseError {
-        ParseError {
-            msg: message.to_string(),
-            token_literal: token.lexeme.to_string(),
-        }
     }
 }
 

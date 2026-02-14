@@ -33,12 +33,6 @@ impl<'src> Scanner<'src> {
         chars.next()
     }
 
-    /// Advances the scanner by n bytes
-    fn advance_n(&mut self, n: usize) {
-        self.rest = &self.rest[n..];
-        self.byte_offset += n;
-    }
-
     /// Consumes the next character and returns it
     fn advance(&mut self) -> Option<char> {
         if let Some(c) = self.rest.chars().next() {

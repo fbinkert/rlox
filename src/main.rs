@@ -27,12 +27,12 @@ enum Commands {
     },
 }
 
-fn main() {
+fn main() -> miette::Result<()> {
     let cli = Cli::parse();
     match cli.command {
         Commands::Run { path } => {
             if let Some(path) = path {
-                run_file(&path);
+                run_file(&path)?;
             } else {
                 run_prompt();
             }
@@ -45,13 +45,16 @@ fn main() {
             });
         }
     }
+    Ok(())
 }
 
+/// # Errors
+/// Returns an error if scanning/parsing fails
 /// # Panics
 /// If the contents of the file are not valid UTF-8
-pub fn run_file(path: &Path) {
+pub fn run_file(path: &Path) -> miette::Result<()> {
     let source = std::fs::read_to_string(path).unwrap();
-    run(&source);
+    run(&source)
 }
 
 /// # Panics
@@ -60,6 +63,7 @@ pub fn run_file(path: &Path) {
 pub fn run_prompt() {
     println!("Lox REPL. Press Ctrl+D to exit.");
     let stdin = io::stdin();
+
     loop {
         print!("lox> ");
         io::stdout().flush().unwrap();
@@ -77,6 +81,16 @@ pub fn run_prompt() {
             continue;
         }
 
-        run(src);
+        // CAPTURE THE RESULT INSTEAD OF IGNORING IT
+        match run(src) {
+            Ok(()) => {
+                // If run() prints the output itself, do nothing here.
+                // Or if run() returned a value, print it here.
+            }
+            Err(report) => {
+                // {:?} triggers the graphical report handler
+                eprintln!("{report:?}");
+            }
+        }
     }
 }

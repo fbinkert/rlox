@@ -1,5 +1,7 @@
 use std::fmt::{Display, Formatter};
 
+use miette::SourceSpan;
+
 #[derive(Debug, Copy, Clone, PartialEq)]
 pub enum TokenKind {
     // Single-character tokens
@@ -69,6 +71,11 @@ impl<'src> Token<'src> {
             lexeme,
             offset,
         }
+    }
+
+    #[must_use]
+    pub fn as_span(&self) -> SourceSpan {
+        (self.offset, self.lexeme.len()).into()
     }
 }
 
