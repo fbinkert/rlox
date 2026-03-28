@@ -1,4 +1,5 @@
 use clap::{Parser, Subcommand};
+use owo_colors::{OwoColorize, Style};
 use rlox::run;
 use rlox::scanner::Scanner;
 use std::io::{self, Write};
@@ -52,7 +53,7 @@ fn main() -> miette::Result<()> {
 /// Returns an error if scanning/parsing fails
 /// # Panics
 /// If the contents of the file are not valid UTF-8
-pub fn run_file(path: &Path) -> miette::Result<()> {
+pub fn run_file(path: &Path) -> miette::Result<String> {
     let source = std::fs::read_to_string(path).unwrap();
     run(&source)
 }
@@ -65,7 +66,7 @@ pub fn run_prompt() {
     let stdin = io::stdin();
 
     loop {
-        print!("lox> ");
+        print!("{} ", "lox>".bright_cyan());
         io::stdout().flush().unwrap();
 
         let mut line = String::new();
@@ -81,16 +82,29 @@ pub fn run_prompt() {
             continue;
         }
 
-        // CAPTURE THE RESULT INSTEAD OF IGNORING IT
         match run(src) {
-            Ok(()) => {
-                // If run() prints the output itself, do nothing here.
-                // Or if run() returned a value, print it here.
+            Ok(out) => {
+                if !out.trim().is_empty() {
+                    print_block("out>", &out);
+                }
             }
             Err(report) => {
-                // {:?} triggers the graphical report handler
-                eprintln!("{report:?}");
+                eprintln!("{} {:?}", "err>".bright_red().bold(), report); //{:?} triggers miette report handler
             }
+        }
+    }
+}
+
+fn print_block(prefix: &str, s: &str) {
+    let style = Style::new().bright_green().bold();
+    let styled_prefix = prefix.style(style);
+
+    let pad = " ".repeat(prefix.len());
+    for (i, line) in s.lines().enumerate() {
+        if i == 0 {
+            println!("{styled_prefix} {line}");
+        } else {
+            println!("{pad} {line}");
         }
     }
 }

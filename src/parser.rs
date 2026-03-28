@@ -181,10 +181,10 @@ where
         let token = self.peek();
         let lexeme = token.lexeme.to_string();
         match token.kind {
-            TokenKind::Error(_) => {
+            TokenKind::Error(msg) => {
                 // Scanner error
                 Err(ParseError {
-                    msg: format!("Unexpected character: '{lexeme}'"),
+                    msg: format!("{msg}: '{lexeme}'"),
                     span: token.as_span(),
                     help: None,
                 })
@@ -211,8 +211,6 @@ where
         }
     }
 }
-
-// Helper methods
 
 impl<'src, I> Parser<'src, I>
 where

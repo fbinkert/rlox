@@ -292,6 +292,7 @@ dependencies = [
  "anyhow",
  "clap",
  "miette",
+ "owo-colors",
  "thiserror",
 ]
 
