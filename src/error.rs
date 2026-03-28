@@ -26,3 +26,5 @@ pub struct SpannedError {
 
     pub error: ParseError,
 }
+
+pub struct RuntimeError;
