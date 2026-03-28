@@ -27,4 +27,26 @@ pub struct SpannedError {
     pub error: ParseError,
 }
 
-pub struct RuntimeError;
+#[derive(Debug, Error)]
+#[error("{msg}")]
+pub struct RuntimeError {
+    pub msg: String,
+    pub span: SourceSpan,
+    pub help: Option<String>,
+}
+
+#[derive(Debug, Error, Diagnostic)]
+#[error("Runtime Error")]
+#[diagnostic(code(lox::runtime))]
+pub struct SpannedRuntimeError {
+    #[source_code]
+    pub src: NamedSource<String>,
+
+    #[label("{error}")]
+    pub span: SourceSpan,
+
+    #[help]
+    pub help: Option<String>,
+
+    pub error: RuntimeError,
+}
