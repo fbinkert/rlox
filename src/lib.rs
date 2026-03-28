@@ -20,7 +20,9 @@ pub fn run(src: &str) -> miette::Result<String> {
     let scanner = Scanner::new(src);
     let mut parser = Parser::new(scanner);
     match parser.parse() {
-        Ok(expr) => match Interpreter::evaluate(&expr) {
+        Ok(expr) => {
+            let mut interpreter = Interpreter;
+            match interpreter.evaluate(&expr) {
             Ok(value) => Ok(value.to_string()),
             Err(e) => Err(SpannedRuntimeError {
                 src: NamedSource::new("lox", src.to_string()),
@@ -29,7 +31,8 @@ pub fn run(src: &str) -> miette::Result<String> {
                 error: e,
             }
             .into()),
-        },
+        }
+        }
         Err(e) => Err(SpannedError {
             src: NamedSource::new("lox", src.to_string()),
             span: e.span,

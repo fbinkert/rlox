@@ -24,24 +24,29 @@ impl fmt::Display for Value {
     }
 }
 
+impl From<&Literal> for Value {
+    fn from(value: &Literal) -> Self {
+        match value {
+            Literal::Number(val) => Self::Number(*val),
+            Literal::String(val) => Self::String(val.clone()),
+            Literal::Boolean(val) => Self::Bool(*val),
+            Literal::Nil => Self::Nil,
+        }
+    }
+}
+
 pub struct Interpreter;
 
 impl Interpreter {
-    pub fn evaluate(expr: &Expr<'_>) -> Result<Value, RuntimeError> {
+    pub fn evaluate(&mut self, expr: &Expr<'_>) -> Result<Value, RuntimeError> {
         match expr {
-            Expr::Literal { value } => match value {
-                Literal::Number(val) => Ok(Value::Number(*val)),
-                Literal::String(val) => Ok(Value::String(val.clone())),
-                Literal::Boolean(val) => Ok(Value::Bool(*val)),
-                Literal::Nil => Ok(Value::Nil),
-            },
-            Expr::Grouping { expression } => Self::evaluate(expression), // deref
-            // coercion
+            Expr::Literal { value } => Ok(Value::from(value)),
+            Expr::Grouping { expression } => self.evaluate(expression),
             Expr::Unary { operator, right } => {
-                let result = Self::evaluate(right)?;
+                let result = self.evaluate(right)?;
 
                 match operator.kind {
-                    TokenKind::Minus => Ok(Value::Number(-Self::expect_number(operator, &result)?)),
+                    TokenKind::Minus => Ok(Value::Number(-self.expect_number(operator, &result)?)),
                     TokenKind::Bang => Ok(Value::Bool(!Self::is_truthy(&result))),
                     _ => Err(Self::error(
                         operator,
@@ -55,53 +60,53 @@ impl Interpreter {
                 operator,
                 right,
             } => {
-                let left_eval = Self::evaluate(left)?;
-                let right_eval = Self::evaluate(right)?;
+                let left_eval = self.evaluate(left)?;
+                let right_eval = self.evaluate(right)?;
 
                 match operator.kind {
-                    TokenKind::Minus => Ok(Value::Number(
-                        Self::expect_number(operator, &left_eval)?
-                            - Self::expect_number(operator, &right_eval)?,
-                    )),
-                    TokenKind::Slash => Ok(Value::Number(
-                        Self::expect_number(operator, &left_eval)?
-                            / Self::expect_number(operator, &right_eval)?,
-                    )),
-                    TokenKind::Star => Ok(Value::Number(
-                        Self::expect_number(operator, &left_eval)?
-                            * Self::expect_number(operator, &right_eval)?,
-                    )),
-                    TokenKind::Plus => match (left_eval, right_eval) {
-                        (Value::Number(left_number), Value::Number(right_number)) => {
-                            Ok(Value::Number(left_number + right_number))
-                        }
-                        (Value::String(left_string), Value::String(right_string)) => {
-                            Ok(Value::String(left_string + &right_string))
-                        }
-                        _ => Err(Self::error(
-                            operator,
-                            "Operands to '+' must be two numbers or two strings.".to_string(),
-                            Some(
-                                "Try matching the operand types on both sides of '+'.".to_string(),
-                            ),
-                        )),
-                    },
-                    TokenKind::Greater => Ok(Value::Bool(
-                        Self::expect_number(operator, &left_eval)?
-                            > Self::expect_number(operator, &right_eval)?,
-                    )),
-                    TokenKind::GreaterEqual => Ok(Value::Bool(
-                        Self::expect_number(operator, &left_eval)?
-                            >= Self::expect_number(operator, &right_eval)?,
-                    )),
-                    TokenKind::Less => Ok(Value::Bool(
-                        Self::expect_number(operator, &left_eval)?
-                            < Self::expect_number(operator, &right_eval)?,
-                    )),
-                    TokenKind::LessEqual => Ok(Value::Bool(
-                        Self::expect_number(operator, &left_eval)?
-                            <= Self::expect_number(operator, &right_eval)?,
-                    )),
+                    TokenKind::Minus => self.eval_numeric_binary(
+                        operator,
+                        &left_eval,
+                        &right_eval,
+                        |left, right| Value::Number(left - right),
+                    ),
+                    TokenKind::Slash => self.eval_numeric_binary(
+                        operator,
+                        &left_eval,
+                        &right_eval,
+                        |left, right| Value::Number(left / right),
+                    ),
+                    TokenKind::Star => self.eval_numeric_binary(
+                        operator,
+                        &left_eval,
+                        &right_eval,
+                        |left, right| Value::Number(left * right),
+                    ),
+                    TokenKind::Plus => self.eval_plus(operator, left_eval, right_eval),
+                    TokenKind::Greater => self.eval_numeric_comparison(
+                        operator,
+                        &left_eval,
+                        &right_eval,
+                        |left, right| left > right,
+                    ),
+                    TokenKind::GreaterEqual => self.eval_numeric_comparison(
+                        operator,
+                        &left_eval,
+                        &right_eval,
+                        |left, right| left >= right,
+                    ),
+                    TokenKind::Less => self.eval_numeric_comparison(
+                        operator,
+                        &left_eval,
+                        &right_eval,
+                        |left, right| left < right,
+                    ),
+                    TokenKind::LessEqual => self.eval_numeric_comparison(
+                        operator,
+                        &left_eval,
+                        &right_eval,
+                        |left, right| left <= right,
+                    ),
                     TokenKind::BangEqual => {
                         Ok(Value::Bool(!Self::is_equal(&left_eval, &right_eval)))
                     }
@@ -122,19 +127,80 @@ impl Interpreter {
         !matches!(val, Value::Nil | Value::Bool(false))
     }
 
-    fn expect_number(operator: &Token<'_>, val: &Value) -> Result<f64, RuntimeError> {
+    fn expect_number(&self, operator: &Token<'_>, val: &Value) -> Result<f64, RuntimeError> {
         match val {
             Value::Number(value) => Ok(*value),
             _ => Err(Self::error(
                 operator,
-                format!("Operand for '{}' must be a number.", operator.lexeme),
-                Some("Use a numeric value here.".to_string()),
+                format!("Operand to '{}' must be a number.", operator.lexeme),
+                Some("Use a numeric value with this unary operator.".to_string()),
+            )),
+        }
+    }
+
+    fn expect_numbers(
+        &self,
+        operator: &Token<'_>,
+        left: &Value,
+        right: &Value,
+    ) -> Result<(f64, f64), RuntimeError> {
+        match (left, right) {
+            (Value::Number(left), Value::Number(right)) => Ok((*left, *right)),
+            _ => Err(Self::error(
+                operator,
+                format!("Operands to '{}' must be numbers.", operator.lexeme),
+                Some("Use numeric values on both sides of the operator.".to_string()),
             )),
         }
     }
 
     fn is_equal(left: &Value, right: &Value) -> bool {
         left == right
+    }
+
+    fn eval_numeric_binary<F>(
+        &self,
+        operator: &Token<'_>,
+        left: &Value,
+        right: &Value,
+        f: F,
+    ) -> Result<Value, RuntimeError>
+    where
+        F: FnOnce(f64, f64) -> Value,
+    {
+        let (left, right) = self.expect_numbers(operator, left, right)?;
+        Ok(f(left, right))
+    }
+
+    fn eval_numeric_comparison<F>(
+        &self,
+        operator: &Token<'_>,
+        left: &Value,
+        right: &Value,
+        f: F,
+    ) -> Result<Value, RuntimeError>
+    where
+        F: FnOnce(f64, f64) -> bool,
+    {
+        let (left, right) = self.expect_numbers(operator, left, right)?;
+        Ok(Value::Bool(f(left, right)))
+    }
+
+    fn eval_plus(
+        &self,
+        operator: &Token<'_>,
+        left: Value,
+        right: Value,
+    ) -> Result<Value, RuntimeError> {
+        match (left, right) {
+            (Value::Number(left), Value::Number(right)) => Ok(Value::Number(left + right)),
+            (Value::String(left), Value::String(right)) => Ok(Value::String(left + &right)),
+            _ => Err(Self::error(
+                operator,
+                "Operands to '+' must be two numbers or two strings.".to_string(),
+                Some("Try matching the operand types on both sides of '+'.".to_string()),
+            )),
+        }
     }
 
     fn error(operator: &Token<'_>, msg: String, help: Option<String>) -> RuntimeError {
@@ -150,19 +216,69 @@ impl Interpreter {
 mod tests {
     use crate::{parser::Parser, scanner::Scanner};
 
-    use super::Interpreter;
+    use super::{Interpreter, Value};
 
-    #[test]
-    fn reports_operator_span_for_runtime_errors() {
-        let source = "\"a\" - \"b\"";
+    fn evaluate(source: &str) -> Value {
         let scanner = Scanner::new(source);
         let mut parser = Parser::new(scanner);
         let expr = parser.parse().expect("expression should parse");
+        let mut interpreter = Interpreter;
 
-        let err = Interpreter::evaluate(&expr).expect_err("expression should fail at runtime");
+        interpreter
+            .evaluate(&expr)
+            .expect("expression should evaluate")
+    }
 
-        assert_eq!(err.msg, "Operand for '-' must be a number.");
-        assert_eq!(err.help.as_deref(), Some("Use a numeric value here."));
+    fn evaluate_error(source: &str) -> crate::error::RuntimeError {
+        let scanner = Scanner::new(source);
+        let mut parser = Parser::new(scanner);
+        let expr = parser.parse().expect("expression should parse");
+        let mut interpreter = Interpreter;
+
+        interpreter
+            .evaluate(&expr)
+            .expect_err("expression should fail at runtime")
+    }
+
+    #[test]
+    fn evaluates_truthiness_for_bang() {
+        assert_eq!(evaluate("!nil"), Value::Bool(true));
+    }
+
+    #[test]
+    fn evaluates_nested_equality() {
+        assert_eq!(evaluate("!(false == true)"), Value::Bool(true));
+    }
+
+    #[test]
+    fn concatenates_strings() {
+        assert_eq!(evaluate("\"a\" + \"b\""), Value::String("ab".to_string()));
+    }
+
+    #[test]
+    fn evaluates_comparisons() {
+        assert_eq!(evaluate("1 < 2 == true"), Value::Bool(true));
+    }
+
+    #[test]
+    fn reports_operator_span_for_runtime_errors() {
+        let err = evaluate_error("\"a\" - \"b\"");
+
+        assert_eq!(err.msg, "Operands to '-' must be numbers.");
+        assert_eq!(
+            err.help.as_deref(),
+            Some("Use numeric values on both sides of the operator.")
+        );
         assert_eq!(err.span, (4, 1).into());
+    }
+
+    #[test]
+    fn reports_plus_type_mismatch() {
+        let err = evaluate_error("\"a\" + 1");
+
+        assert_eq!(
+            err.msg,
+            "Operands to '+' must be two numbers or two strings."
+        );
     }
 }
