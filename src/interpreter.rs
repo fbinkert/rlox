@@ -1,7 +1,7 @@
 use crate::{
     error::RuntimeError,
     expression::{Expr, Literal},
-    statement::Stmt,
+    statement::{Declaration, Program, Stmt},
     token::{Token, TokenKind},
 };
 use std::fmt;
@@ -47,16 +47,26 @@ fn format_number(n: f64) -> String {
 pub struct Interpreter;
 
 impl Interpreter {
-    pub fn interpret(&mut self, stmts: &[Stmt]) -> Result<(), RuntimeError> {
-        for stmt in stmts {
-            match stmt {
-                Stmt::PrintStmt(expression) => {
-                    let value = self.evaluate(expression)?;
-                    println!("{value}");
-                }
-                Stmt::ExprStmt(expression) => {
-                    self.evaluate(expression)?;
-                }
+    pub fn interpret(&mut self, program: &Program) -> Result<(), RuntimeError> {
+        for declaration in program {
+            match declaration {
+                Declaration::Stmt(stmt) => match stmt {
+                    Stmt::PrintStmt(expression) => {
+                        let value = self.evaluate(expression)?;
+                        println!("{value}");
+                    }
+                    Stmt::ExprStmt(expression) => {
+                        self.evaluate(expression)?;
+                    }
+                },
+                Declaration::VarDecl(name, maybe_initializer) => match maybe_initializer {
+                    Some(initializer) => {
+                        todo!()
+                    }
+                    None => {
+                        todo!()
+                    }
+                },
             }
         }
 
@@ -65,6 +75,9 @@ impl Interpreter {
 
     fn evaluate(&mut self, expr: &Expr) -> Result<Value, RuntimeError> {
         match expr {
+            Expr::Variable { name } => {
+                todo!()
+            }
             Expr::Literal { value } => Ok(Value::from(value)),
             Expr::Grouping { expression } => self.evaluate(expression),
             Expr::Unary { operator, right } => {
@@ -239,7 +252,11 @@ impl Interpreter {
 
 #[cfg(test)]
 mod tests {
-    use crate::{parser::Parser, scanner::Scanner, statement::Stmt};
+    use crate::{
+        parser::Parser,
+        scanner::Scanner,
+        statement::{Declaration, Stmt},
+    };
 
     use super::{Interpreter, Value};
 
@@ -250,8 +267,10 @@ mod tests {
 
         assert_eq!(program.len(), 1, "expected a single statement");
         match program.into_iter().next().expect("statement should exist") {
-            Stmt::ExprStmt(expr) => expr,
-            Stmt::PrintStmt(_) => panic!("expected expression statement"),
+            Declaration::Stmt(Stmt::ExprStmt(expr)) => expr,
+            Declaration::Stmt(Stmt::PrintStmt(_)) | Declaration::VarDecl(_, _) => {
+                panic!("expected expression statement")
+            }
         }
     }
 

@@ -5,7 +5,7 @@ use miette::{SourceOffset, SourceSpan};
 use crate::{
     error::ParseError,
     expression::{Expr, Literal},
-    statement::Stmt,
+    statement::{Declaration, Stmt},
     token::{Token, TokenKind},
 };
 
@@ -38,18 +38,47 @@ where
 
     /// # Errors
     /// Returns a `ParseError` when the parser fails
-    pub fn parse(&mut self) -> Result<Vec<Stmt>, ParseError> {
+    pub fn parse(&mut self) -> Result<Vec<Declaration>, ParseError> {
         self.program()
     }
 
-    fn program(&mut self) -> Result<Vec<Stmt>, ParseError> {
-        let mut statements = Vec::<Stmt>::new();
+    /// declaration* EOF ;
+    fn program(&mut self) -> Result<Vec<Declaration>, ParseError> {
+        let mut declarations = Vec::<Declaration>::new();
         while !self.is_at_end() {
-            statements.push(self.statement()?);
+            declarations.push(self.declaration()?);
         }
-        Ok(statements)
+        Ok(declarations)
     }
 
+    /// varDecl | statement
+    fn declaration(&mut self) -> Result<Declaration, ParseError> {
+        if self.match_tokens(&[TokenKind::Var]) {
+            self.var_declaration()
+        } else {
+            Ok(Declaration::Stmt(self.statement()?))
+        }
+    }
+
+    /// "var" IDENTIFIER ( "=" expression )? ";" ;
+    fn var_declaration(&mut self) -> Result<Declaration, ParseError> {
+        let name = self.consume_identifier("Expected an identifier.")?;
+        let initializer = if self.match_tokens(&[TokenKind::Equal]) {
+            Some(self.expression()?)
+        } else {
+            None
+        };
+
+        self.consume(
+            TokenKind::Semicolon,
+            "Expected a semicolon after declaration.",
+            Some("Add a semicolon after the declaration."),
+        )?;
+
+        Ok(Declaration::VarDecl(name, initializer))
+    }
+
+    /// exprStmt | printStmt
     fn statement(&mut self) -> Result<Stmt, ParseError> {
         if self.match_tokens(&[TokenKind::Print]) {
             self.print_statement()
@@ -58,27 +87,25 @@ where
         }
     }
 
+    /// "print" expression ";" ;
     fn print_statement(&mut self) -> Result<Stmt, ParseError> {
         let expression = self.expression()?;
-        if !self.match_tokens(&[TokenKind::Semicolon]) {
-            return Err(ParseError {
-                msg: "Expected a semicolon after print statement.".into(),
-                span: SourceSpan::new(SourceOffset::from(self.previous.offset), 0),
-                help: Some("Add a semicolon after the print statement.".into()),
-            });
-        }
+        self.consume(
+            TokenKind::Semicolon,
+            "Expected a semicolon after print statement.",
+            Some("Add a semicolon after the print statement."),
+        )?;
         Ok(Stmt::PrintStmt(expression))
     }
 
+    /// expression ";" ;
     fn expression_statement(&mut self) -> Result<Stmt, ParseError> {
         let expression = self.expression()?;
-        if !self.match_tokens(&[TokenKind::Semicolon]) {
-            return Err(ParseError {
-                msg: "Expected a semicolon after expression statement.".into(),
-                span: SourceSpan::new(SourceOffset::from(self.previous.offset), 0),
-                help: Some("Add a semicolon after the exression statement.".into()),
-            });
-        }
+        self.consume(
+            TokenKind::Semicolon,
+            "Expected a semicolon after expression statement.",
+            Some("Add a semicolon after the expression statement."),
+        )?;
         Ok(Stmt::ExprStmt(expression))
     }
 
@@ -171,11 +198,16 @@ where
         self.primary()
     }
 
-    // NUMBER | STRING | "true" | "false" | "nil" | "(" expression ")" ;
+    // NUMBER | STRING | "true" | "false" | "nil" | "(" expression ")" | IDENTIFIER;
     fn primary(&mut self) -> Result<Expr, ParseError> {
         if self.match_tokens(&[TokenKind::False]) {
             return Ok(Expr::Literal {
                 value: Literal::Boolean(false),
+            });
+        }
+        if self.match_tokens(&[TokenKind::Identifier]) {
+            return Ok(Expr::Variable {
+                name: self.previous,
             });
         }
         if self.match_tokens(&[TokenKind::True]) {
@@ -207,18 +239,19 @@ where
             let left_paren = self.previous;
 
             let expr = self.expression()?;
-            if self.check(TokenKind::RightParen) {
-                let _ = self.advance();
-                return Ok(Expr::Grouping {
-                    expression: Box::new(expr),
-                });
-            }
-            let _ = self.advance();
-
-            return Err(ParseError {
+            self.consume(
+                TokenKind::RightParen,
+                "unclosed delimiter",
+                Some("Expect ')' after expression to close this group."),
+            )
+            .map_err(|_| ParseError {
                 msg: "unclosed delimiter".to_string(),
                 span: left_paren.as_span(),
                 help: Some("Expect ')' after expression to close this group.".to_string()),
+            })?;
+
+            return Ok(Expr::Grouping {
+                expression: Box::new(expr),
             });
         }
         let token = self.peek();
@@ -226,11 +259,7 @@ where
         match token.kind {
             TokenKind::Error(msg) => {
                 // Scanner error
-                Err(ParseError {
-                    msg: format!("{msg}: '{lexeme}'"),
-                    span: token.as_span(),
-                    help: None,
-                })
+                Err(self.error_at(token, format!("{msg}: '{lexeme}'"), None))
             }
             TokenKind::EOF => {
                 // Scanner error
@@ -242,14 +271,11 @@ where
             }
             _ => {
                 // Scanner error
-                Err(ParseError {
-                    msg: format!("Unexpected token '{lexeme}'. Expected an expression."),
-                    span: self.previous.as_span(),
-                    help: Some(
-                        "Expressions can be numbers, strings, booleans, or parenthesized groups."
-                            .to_string(),
-                    ),
-                })
+                Err(self.error_at(
+                    token,
+                    format!("Unexpected token '{lexeme}'. Expected an expression."),
+                    Some("Expressions can be numbers, strings, booleans, or parenthesized groups."),
+                ))
             }
         }
     }
@@ -293,6 +319,41 @@ where
         self.peek().kind == TokenKind::EOF
     }
 
+    fn consume(
+        &mut self,
+        kind: TokenKind,
+        msg: impl Into<String>,
+        help: Option<&str>,
+    ) -> Result<Token, ParseError> {
+        if self.check(kind) {
+            Ok(self.advance())
+        } else {
+            Err(self.error_at_current(msg, help))
+        }
+    }
+
+    fn consume_identifier(&mut self, msg: impl Into<String>) -> Result<String, ParseError> {
+        let token = self.peek();
+        if token.kind == TokenKind::Identifier {
+            self.advance();
+            Ok(token.slice(self.source).to_string())
+        } else {
+            Err(self.error_at_current(msg, None))
+        }
+    }
+
+    fn error_at_current(&self, msg: impl Into<String>, help: Option<&str>) -> ParseError {
+        self.error_at(self.peek(), msg, help)
+    }
+
+    fn error_at(&self, token: Token, msg: impl Into<String>, help: Option<&str>) -> ParseError {
+        ParseError {
+            msg: msg.into(),
+            span: token.as_span(),
+            help: help.map(str::to_string),
+        }
+    }
+
     const fn peek(&self) -> Token {
         self.current
     }
@@ -300,7 +361,10 @@ where
 
 #[cfg(test)]
 mod tests {
-    use crate::{scanner::Scanner, statement::Stmt};
+    use crate::{
+        scanner::Scanner,
+        statement::{Declaration, Stmt},
+    };
 
     use super::*;
 
@@ -315,8 +379,57 @@ mod tests {
         let expected_output = "(== (>= (* (group (+ (- 1) 2)) 3) 4) (! false))";
         assert_eq!(parsed.len(), 1);
         match &parsed[0] {
-            Stmt::ExprStmt(expr) => assert_eq!(format!("{expr}"), expected_output),
-            Stmt::PrintStmt(_) => panic!("expected expression statement"),
+            Declaration::Stmt(Stmt::ExprStmt(expr)) => {
+                assert_eq!(format!("{expr}"), expected_output)
+            }
+            Declaration::Stmt(Stmt::PrintStmt(_)) | Declaration::VarDecl(_, _) => {
+                panic!("expected expression statement")
+            }
         }
+    }
+
+    #[test]
+    fn parses_var_declaration_without_initializer() {
+        let source = "var breakfast;";
+
+        let scanner = Scanner::new(source);
+        let mut parser = Parser::new(source, scanner);
+        let parsed = parser.parse().expect("Failed to parse program");
+
+        assert_eq!(parsed.len(), 1);
+        match &parsed[0] {
+            Declaration::VarDecl(name, None) => assert_eq!(name, "breakfast"),
+            _ => panic!("expected variable declaration without initializer"),
+        }
+    }
+
+    #[test]
+    fn parses_var_declaration_with_initializer() {
+        let source = "var breakfast = 1 + 2;";
+
+        let scanner = Scanner::new(source);
+        let mut parser = Parser::new(source, scanner);
+        let parsed = parser.parse().expect("Failed to parse program");
+
+        assert_eq!(parsed.len(), 1);
+        match &parsed[0] {
+            Declaration::VarDecl(name, Some(expr)) => {
+                assert_eq!(name, "breakfast");
+                assert_eq!(format!("{expr}"), "(+ 1 2)");
+            }
+            _ => panic!("expected variable declaration with initializer"),
+        }
+    }
+
+    #[test]
+    fn reports_missing_identifier_in_var_declaration() {
+        let source = "var = 1;";
+
+        let scanner = Scanner::new(source);
+        let mut parser = Parser::new(source, scanner);
+        let err = parser.parse().expect_err("program should fail to parse");
+
+        assert_eq!(err.msg, "Expected an identifier.");
+        assert_eq!(err.span, (4, 1).into());
     }
 }

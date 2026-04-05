@@ -38,6 +38,9 @@ pub enum Expr {
         operator: Token,
         right: Box<Self>,
     },
+    Variable {
+        name: Token,
+    },
 }
 
 impl fmt::Display for Expr {
@@ -51,6 +54,7 @@ impl fmt::Display for Expr {
             Self::Grouping { expression } => parenthesize(f, "group", &[expression]),
             Self::Literal { value } => write!(f, "{value}"),
             Self::Unary { operator, right } => parenthesize(f, operator.kind.lexeme(), &[right]),
+            Self::Variable { name } => write!(f, "{}", name.kind.lexeme()),
         }
     }
 }
