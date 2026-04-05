@@ -13,7 +13,7 @@ pub enum Literal {
 impl fmt::Display for Literal {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Self::Number(n) => write!(f, "{n}"),
+            Self::Number(n) => write!(f, "{}", format_number(*n)),
             Self::String(s) => write!(f, "{s}"),
             Self::Boolean(b) => write!(f, "{b}"),
             Self::Nil => write!(f, "nil"),
@@ -61,4 +61,12 @@ fn parenthesize(f: &mut fmt::Formatter<'_>, name: &str, exprs: &[&Expr]) -> fmt:
         write!(f, " {expr}")?;
     }
     write!(f, ")")
+}
+
+fn format_number(n: f64) -> String {
+    let mut text = n.to_string();
+    if text.ends_with(".0") {
+        text.truncate(text.len() - 2);
+    }
+    text
 }

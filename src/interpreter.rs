@@ -17,7 +17,7 @@ pub enum Value {
 impl fmt::Display for Value {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Self::Number(n) => write!(f, "{n}"),
+            Self::Number(n) => write!(f, "{}", format_number(*n)),
             Self::String(s) => write!(f, "{s}"),
             Self::Bool(b) => write!(f, "{b}"),
             Self::Nil => write!(f, "nil"),
@@ -36,6 +36,14 @@ impl From<&Literal> for Value {
     }
 }
 
+fn format_number(n: f64) -> String {
+    let mut text = n.to_string();
+    if text.ends_with(".0") {
+        text.truncate(text.len() - 2);
+    }
+    text
+}
+
 pub struct Interpreter;
 
 impl Interpreter {
@@ -44,7 +52,7 @@ impl Interpreter {
             match stmt {
                 Stmt::PrintStmt(expression) => {
                     let value = self.evaluate(expression)?;
-                    println!("{value:#?}");
+                    println!("{value}");
                 }
                 Stmt::ExprStmt(expression) => {
                     self.evaluate(expression)?;
