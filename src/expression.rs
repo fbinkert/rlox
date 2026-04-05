@@ -22,10 +22,10 @@ impl fmt::Display for Literal {
 }
 
 #[derive(Debug, Clone)]
-pub enum Expr<'src> {
+pub enum Expr {
     Binary {
         left: Box<Self>,
-        operator: Token<'src>,
+        operator: Token,
         right: Box<Self>,
     },
     Grouping {
@@ -35,22 +35,22 @@ pub enum Expr<'src> {
         value: Literal,
     },
     Unary {
-        operator: Token<'src>,
+        operator: Token,
         right: Box<Self>,
     },
 }
 
-impl fmt::Display for Expr<'_> {
+impl fmt::Display for Expr {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Expr::Binary {
+            Self::Binary {
                 left,
                 operator,
                 right,
-            } => parenthesize(f, operator.lexeme, &[left, right]),
-            Expr::Grouping { expression } => parenthesize(f, "group", &[expression]),
-            Expr::Literal { value } => write!(f, "{value}"),
-            Expr::Unary { operator, right } => parenthesize(f, operator.lexeme, &[right]),
+            } => parenthesize(f, operator.kind.lexeme(), &[left, right]),
+            Self::Grouping { expression } => parenthesize(f, "group", &[expression]),
+            Self::Literal { value } => write!(f, "{value}"),
+            Self::Unary { operator, right } => parenthesize(f, operator.kind.lexeme(), &[right]),
         }
     }
 }

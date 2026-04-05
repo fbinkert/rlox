@@ -20,7 +20,7 @@ impl<'src> Scanner<'src> {
     }
 }
 
-impl<'src> Scanner<'src> {
+impl Scanner<'_> {
     /// Returns the next character without consuming it
     fn peek(&self) -> Option<char> {
         self.rest.chars().next()
@@ -77,12 +77,8 @@ impl<'src> Scanner<'src> {
         }
     }
 
-    fn make_token(&self, kind: TokenKind, start_offset: usize) -> Token<'src> {
-        Token::new(
-            kind,
-            &self.source[start_offset..self.byte_offset],
-            start_offset,
-        )
+    const fn make_token(&self, kind: TokenKind, start_offset: usize) -> Token {
+        Token::new(kind, start_offset, self.byte_offset - start_offset)
     }
 
     fn consume_digits(&mut self) {
@@ -106,23 +102,27 @@ impl<'src> Scanner<'src> {
     }
 }
 
-impl<'src> Scanner<'src> {
-    fn scan_string_literal(&mut self, start_offset: usize) -> Token<'src> {
+impl Scanner<'_> {
+    fn scan_string_literal(&mut self, start_offset: usize) -> Token {
         if let Some(byte_length) = self.rest.find('"') {
-            let start_content = self.byte_offset; // without starting quote
-            let end_content = self.byte_offset + byte_length; // without ending quote
-            let lexeme = &self.source[start_content..end_content];
-
             let advance_by = byte_length + 1;
             self.byte_offset += advance_by;
             self.rest = &self.rest[advance_by..];
-            Token::new(TokenKind::String, lexeme, start_offset)
+            Token::new(
+                TokenKind::String,
+                start_offset,
+                self.byte_offset - start_offset,
+            )
         } else {
-            Token::new(TokenKind::Error("Unterminated string"), "", start_offset)
+            Token::new(
+                TokenKind::Error("Unterminated string"),
+                start_offset,
+                self.byte_offset - start_offset,
+            )
         }
     }
 
-    fn scan_number(&mut self, start_offset: usize) -> Token<'src> {
+    fn scan_number(&mut self, start_offset: usize) -> Token {
         self.consume_digits();
 
         if let Some(c) = self.peek_next()
@@ -138,27 +138,26 @@ impl<'src> Scanner<'src> {
         let Ok(number) = lexeme.parse::<f64>() else {
             return Token::new(
                 TokenKind::Error("Invalid number literal"),
-                lexeme,
                 start_offset,
+                lexeme.len(),
             );
         };
 
-        Token::new(TokenKind::Number(number), lexeme, start_offset)
+        Token::new(TokenKind::Number(number), start_offset, lexeme.len())
     }
 
-    fn scan_ident(&mut self, start_offset: usize) -> Token<'src> {
+    fn scan_ident(&mut self, start_offset: usize) -> Token {
         self.consume_ident();
         let lexeme = &self.source[start_offset..self.byte_offset];
         let kind = Self::get_keyword_kind(lexeme).unwrap_or(TokenKind::Identifier);
-        Token::new(kind, lexeme, start_offset)
+        Token::new(kind, start_offset, lexeme.len())
     }
 
-    fn scan_unknown_character(&self, start_offset: usize) -> Token<'src> {
-        let lexeme = &self.source[start_offset..self.byte_offset];
+    const fn scan_unknown_character(&self, start_offset: usize) -> Token {
         Token::new(
             TokenKind::Error("Unexpected character"),
-            lexeme,
             start_offset,
+            self.byte_offset - start_offset,
         )
     }
 
@@ -185,8 +184,8 @@ impl<'src> Scanner<'src> {
     }
 }
 
-impl<'src> Iterator for Scanner<'src> {
-    type Item = Token<'src>;
+impl Iterator for Scanner<'_> {
+    type Item = Token;
 
     fn next(&mut self) -> Option<Self::Item> {
         self.skip_whitespace();
@@ -200,7 +199,7 @@ impl<'src> Iterator for Scanner<'src> {
                 return None;
             }
             self.eof_emitted = true;
-            return Some(Token::new(TokenKind::EOF, "", self.byte_offset));
+            return Some(Token::new(TokenKind::EOF, self.byte_offset, 0));
         }
 
         let start_offset = self.byte_offset;
@@ -273,7 +272,7 @@ mod tests {
         let scanner = Scanner::new(source);
         scanner
             .map(|t| {
-                eprintln!("{t}");
+                eprintln!("{t:?}");
                 t.kind
             })
             .collect()

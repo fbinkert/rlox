@@ -38,7 +38,7 @@ impl From<&Literal> for Value {
 pub struct Interpreter;
 
 impl Interpreter {
-    pub fn evaluate(&mut self, expr: &Expr<'_>) -> Result<Value, RuntimeError> {
+    pub fn evaluate(&mut self, expr: &Expr) -> Result<Value, RuntimeError> {
         match expr {
             Expr::Literal { value } => Ok(Value::from(value)),
             Expr::Grouping { expression } => self.evaluate(expression),
@@ -50,7 +50,7 @@ impl Interpreter {
                     TokenKind::Bang => Ok(Value::Bool(!Self::is_truthy(&result))),
                     _ => Err(Self::error(
                         operator,
-                        format!("Unsupported unary operator '{}'.", operator.lexeme),
+                        format!("Unsupported unary operator '{}'.", operator.kind.lexeme()),
                         None,
                     )),
                 }
@@ -115,7 +115,7 @@ impl Interpreter {
                     }
                     _ => Err(Self::error(
                         operator,
-                        format!("Unsupported binary operator '{}'.", operator.lexeme),
+                        format!("Unsupported binary operator '{}'.", operator.kind.lexeme()),
                         None,
                     )),
                 }
@@ -127,12 +127,12 @@ impl Interpreter {
         !matches!(val, Value::Nil | Value::Bool(false))
     }
 
-    fn expect_number(&self, operator: &Token<'_>, val: &Value) -> Result<f64, RuntimeError> {
+    fn expect_number(&self, operator: &Token, val: &Value) -> Result<f64, RuntimeError> {
         match val {
             Value::Number(value) => Ok(*value),
             _ => Err(Self::error(
                 operator,
-                format!("Operand to '{}' must be a number.", operator.lexeme),
+                format!("Operand to '{}' must be a number.", operator.kind.lexeme()),
                 Some("Use a numeric value with this unary operator.".to_string()),
             )),
         }
@@ -140,7 +140,7 @@ impl Interpreter {
 
     fn expect_numbers(
         &self,
-        operator: &Token<'_>,
+        operator: &Token,
         left: &Value,
         right: &Value,
     ) -> Result<(f64, f64), RuntimeError> {
@@ -148,7 +148,7 @@ impl Interpreter {
             (Value::Number(left), Value::Number(right)) => Ok((*left, *right)),
             _ => Err(Self::error(
                 operator,
-                format!("Operands to '{}' must be numbers.", operator.lexeme),
+                format!("Operands to '{}' must be numbers.", operator.kind.lexeme()),
                 Some("Use numeric values on both sides of the operator.".to_string()),
             )),
         }
@@ -160,7 +160,7 @@ impl Interpreter {
 
     fn eval_numeric_binary<F>(
         &self,
-        operator: &Token<'_>,
+        operator: &Token,
         left: &Value,
         right: &Value,
         f: F,
@@ -174,7 +174,7 @@ impl Interpreter {
 
     fn eval_numeric_comparison<F>(
         &self,
-        operator: &Token<'_>,
+        operator: &Token,
         left: &Value,
         right: &Value,
         f: F,
@@ -188,7 +188,7 @@ impl Interpreter {
 
     fn eval_plus(
         &self,
-        operator: &Token<'_>,
+        operator: &Token,
         left: Value,
         right: Value,
     ) -> Result<Value, RuntimeError> {
@@ -203,7 +203,7 @@ impl Interpreter {
         }
     }
 
-    fn error(operator: &Token<'_>, msg: String, help: Option<String>) -> RuntimeError {
+    fn error(operator: &Token, msg: String, help: Option<String>) -> RuntimeError {
         RuntimeError {
             msg,
             span: operator.as_span(),
@@ -220,7 +220,7 @@ mod tests {
 
     fn evaluate(source: &str) -> Value {
         let scanner = Scanner::new(source);
-        let mut parser = Parser::new(scanner);
+        let mut parser = Parser::new(source, scanner);
         let expr = parser.parse().expect("expression should parse");
         let mut interpreter = Interpreter;
 
@@ -231,7 +231,7 @@ mod tests {
 
     fn evaluate_error(source: &str) -> crate::error::RuntimeError {
         let scanner = Scanner::new(source);
-        let mut parser = Parser::new(scanner);
+        let mut parser = Parser::new(source, scanner);
         let expr = parser.parse().expect("expression should parse");
         let mut interpreter = Interpreter;
 

@@ -1,32 +1,35 @@
-use std::mem::replace;
+use std::{mem::replace, os::macos::raw::stat};
 
 use miette::{SourceOffset, SourceSpan};
 
 use crate::{
     error::ParseError,
     expression::{Expr, Literal},
+    statement::{self, Stmt},
     token::{Token, TokenKind},
 };
 
 pub struct Parser<'src, I>
 where
-    I: Iterator<Item = Token<'src>>,
+    I: Iterator<Item = Token>,
 {
+    source: &'src str,
     tokens: I,
-    current: Token<'src>,
-    previous: Token<'src>,
+    current: Token,
+    previous: Token,
 }
 
 impl<'src, I> Parser<'src, I>
 where
-    I: Iterator<Item = Token<'src>>,
+    I: Iterator<Item = Token>,
 {
     #[must_use]
-    pub fn new(mut tokens: I) -> Self {
+    pub fn new(source: &'src str, mut tokens: I) -> Self {
         let current = tokens
             .next()
-            .unwrap_or_else(|| Token::new(TokenKind::EOF, "", 0));
+            .unwrap_or_else(|| Token::new(TokenKind::EOF, 0, 0));
         Self {
+            source,
             tokens,
             previous: current,
             current,
@@ -35,17 +38,57 @@ where
 
     /// # Errors
     /// Returns a `ParseError` when the parser fails
-    pub fn parse(&mut self) -> Result<Expr<'src>, ParseError> {
-        self.expression()
+    pub fn parse(&mut self) -> Result<Vec<Stmt>, ParseError> {
+        self.program()
+    }
+
+    fn program(&mut self) -> Result<Vec<Stmt>, ParseError> {
+        let mut statements = Vec::<Stmt>::new();
+        while !self.is_at_end() {
+            statements.push(self.statement()?);
+        }
+        Ok(statements)
+    }
+
+    fn statement(&mut self) -> Result<Stmt, ParseError> {
+        if self.match_tokens(&[TokenKind::Print]) {
+            self.print_statement()
+        } else {
+            self.expression_statement()
+        }
+    }
+
+    fn print_statement(&mut self) -> Result<Stmt, ParseError> {
+        let expression = self.expression()?;
+        if !self.match_tokens(&[TokenKind::Semicolon]) {
+            return Err(ParseError {
+                msg: "Expected a semicolon after print statement.".into(),
+                span: SourceSpan::new(SourceOffset::from(self.previous.offset), 0),
+                help: Some("Add a semicolon after the print statement.".into()),
+            });
+        }
+        Ok(Stmt::PrintStmt(expression))
+    }
+
+    fn expression_statement(&mut self) -> Result<Stmt, ParseError> {
+        let expression = self.expression()?;
+        if !self.match_tokens(&[TokenKind::Semicolon]) {
+            return Err(ParseError {
+                msg: "Expected a semicolon after expression statement.".into(),
+                span: SourceSpan::new(SourceOffset::from(self.previous.offset), 0),
+                help: Some("Add a semicolon after the exression statement.".into()),
+            });
+        }
+        Ok(Stmt::ExprStmt(expression))
     }
 
     // equality ;
-    fn expression(&mut self) -> Result<Expr<'src>, ParseError> {
+    fn expression(&mut self) -> Result<Expr, ParseError> {
         self.equality()
     }
 
     // comparison ( ( "!=" | "==" ) comparison )* ;
-    fn equality(&mut self) -> Result<Expr<'src>, ParseError> {
+    fn equality(&mut self) -> Result<Expr, ParseError> {
         let mut expr = self.comparison()?;
 
         while self.match_tokens(&[TokenKind::BangEqual, TokenKind::EqualEqual]) {
@@ -62,7 +105,7 @@ where
     }
 
     // term ( ( ">" | ">=" | "<" | "<=" ) term )* ;
-    fn comparison(&mut self) -> Result<Expr<'src>, ParseError> {
+    fn comparison(&mut self) -> Result<Expr, ParseError> {
         let mut term = self.term()?;
 
         while self.match_tokens(&[
@@ -83,7 +126,7 @@ where
     }
 
     // factor ( ( "-" | "+" ) factor )* ;
-    fn term(&mut self) -> Result<Expr<'src>, ParseError> {
+    fn term(&mut self) -> Result<Expr, ParseError> {
         let mut factor = self.factor()?;
 
         while self.match_tokens(&[TokenKind::Minus, TokenKind::Plus]) {
@@ -99,7 +142,7 @@ where
     }
 
     // factor -> unary ( ( "/" | "*" ) unary )* ;
-    fn factor(&mut self) -> Result<Expr<'src>, ParseError> {
+    fn factor(&mut self) -> Result<Expr, ParseError> {
         let mut unary = self.unary()?;
 
         while self.match_tokens(&[TokenKind::Slash, TokenKind::Star]) {
@@ -116,7 +159,7 @@ where
     }
 
     // unary ( ( "/" | "*" ) unary )* ;
-    fn unary(&mut self) -> Result<Expr<'src>, ParseError> {
+    fn unary(&mut self) -> Result<Expr, ParseError> {
         if self.match_tokens(&[TokenKind::Minus, TokenKind::Bang]) {
             let operator = self.previous;
             let right = self.unary()?;
@@ -129,7 +172,7 @@ where
     }
 
     // NUMBER | STRING | "true" | "false" | "nil" | "(" expression ")" ;
-    fn primary(&mut self) -> Result<Expr<'src>, ParseError> {
+    fn primary(&mut self) -> Result<Expr, ParseError> {
         if self.match_tokens(&[TokenKind::False]) {
             return Ok(Expr::Literal {
                 value: Literal::Boolean(false),
@@ -156,7 +199,7 @@ where
 
         if self.match_tokens(&[TokenKind::String]) {
             return Ok(Expr::Literal {
-                value: Literal::String(self.previous.lexeme.to_string()),
+                value: Literal::String(self.previous.string_contents(self.source).to_string()),
             });
         }
 
@@ -179,7 +222,7 @@ where
             });
         }
         let token = self.peek();
-        let lexeme = token.lexeme.to_string();
+        let lexeme = token.slice(self.source).to_string();
         match token.kind {
             TokenKind::Error(msg) => {
                 // Scanner error
@@ -212,9 +255,9 @@ where
     }
 }
 
-impl<'src, I> Parser<'src, I>
+impl<I> Parser<'_, I>
 where
-    I: Iterator<Item = Token<'src>>,
+    I: Iterator<Item = Token>,
 {
     fn match_tokens(&mut self, types: &[TokenKind]) -> bool {
         for kind in types {
@@ -236,11 +279,11 @@ where
         }
     }
 
-    fn advance(&mut self) -> Token<'src> {
+    fn advance(&mut self) -> Token {
         let next_token = self
             .tokens
             .next()
-            .unwrap_or_else(|| Token::new(TokenKind::EOF, "", self.current.offset));
+            .unwrap_or_else(|| Token::new(TokenKind::EOF, self.current.offset, 0));
 
         self.previous = replace(&mut self.current, next_token);
         self.previous
@@ -250,7 +293,7 @@ where
         self.peek().kind == TokenKind::EOF
     }
 
-    const fn peek(&self) -> Token<'src> {
+    const fn peek(&self) -> Token {
         self.current
     }
 }
@@ -266,7 +309,7 @@ mod tests {
         let expression = "(-1 + 2) * 3 >= 4 == !false";
 
         let scanner = Scanner::new(expression);
-        let mut parser = Parser::new(scanner);
+        let mut parser = Parser::new(expression, scanner);
         let parsed = parser.parse().expect("Failed to parse expression");
 
         let expected_output = "(== (>= (* (group (+ (- 1) 2)) 3) 4) (! false))";

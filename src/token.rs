@@ -1,5 +1,3 @@
-use std::fmt::{Display, Formatter};
-
 use miette::SourceSpan;
 
 #[derive(Debug, Copy, Clone, PartialEq)]
@@ -57,84 +55,84 @@ pub enum TokenKind {
 }
 
 #[derive(Debug, Copy, Clone)]
-pub struct Token<'src> {
+pub struct Token {
     pub kind: TokenKind,
-    pub lexeme: &'src str,
     pub offset: usize,
+    pub length: usize,
 }
 
-impl<'src> Token<'src> {
+impl Token {
     #[must_use]
-    pub const fn new(kind: TokenKind, lexeme: &'src str, offset: usize) -> Self {
-        Token {
+    pub const fn new(kind: TokenKind, offset: usize, length: usize) -> Self {
+        Self {
             kind,
-            lexeme,
             offset,
+            length,
         }
     }
 
     #[must_use]
     pub fn as_span(&self) -> SourceSpan {
-        (self.offset, self.lexeme.len()).into()
+        (self.offset, self.length).into()
+    }
+
+    #[must_use]
+    pub fn slice<'src>(&self, source: &'src str) -> &'src str {
+        &source[self.offset..self.offset + self.length]
+    }
+
+    #[must_use]
+    pub fn string_contents<'src>(&self, source: &'src str) -> &'src str {
+        debug_assert!(matches!(self.kind, TokenKind::String));
+        let lexeme = self.slice(source);
+        &lexeme[1..lexeme.len() - 1]
     }
 }
 
-impl Display for Token<'_> {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        use TokenKind::{
-            And, Bang, BangEqual, Class, Comma, Dot, EOF, Else, Equal, EqualEqual, Error, False,
-            For, Fun, Greater, GreaterEqual, Identifier, If, LeftBrace, LeftParen, Less, LessEqual,
-            Minus, Nil, Number, Or, Plus, Print, Return, RightBrace, RightParen, Semicolon, Slash,
-            Star, String, Super, This, True, Var, While,
-        };
-        match self.kind {
-            LeftParen => write!(f, "LEFT_PAREN {}", self.lexeme),
-            RightParen => write!(f, "RIGHT_PAREN {}", self.lexeme),
-            LeftBrace => write!(f, "LEFT_BRACE {}", self.lexeme),
-            RightBrace => write!(f, "RIGHT_BRACE {}", self.lexeme),
-            Comma => write!(f, "COMMA {}", self.lexeme),
-            Dot => write!(f, "DOT {}", self.lexeme),
-            Minus => write!(f, "MINUS {}", self.lexeme),
-            Plus => write!(f, "PLUS {}", self.lexeme),
-            Semicolon => write!(f, "SEMICOLON {}", self.lexeme),
-            Slash => write!(f, "SLASH {}", self.lexeme),
-            Star => write!(f, "STAR {}", self.lexeme),
-
-            // One or two character tokens
-            Bang => write!(f, "BANG {}", self.lexeme),
-            BangEqual => write!(f, "BANG_EQUAL {}", self.lexeme),
-            Equal => write!(f, "EQUAL {}", self.lexeme),
-            EqualEqual => write!(f, "EQUAL_EQUAL {}", self.lexeme),
-            Greater => write!(f, "GREATER {}", self.lexeme),
-            GreaterEqual => write!(f, "GREATER_EQUAL {}", self.lexeme),
-            Less => write!(f, "LESS {}", self.lexeme),
-            LessEqual => write!(f, "LESS_EQUAL {}", self.lexeme),
-
-            // Literals
-            Identifier => write!(f, "IDENTIFIER {}", self.lexeme),
-            String => write!(f, "STRING {}", self.lexeme),
-            Number(n) => write!(f, "NUMBER {} {}", self.lexeme, n),
-
-            // Keywords
-            And => write!(f, "AND {}", self.lexeme),
-            Class => write!(f, "CLASS {}", self.lexeme),
-            Else => write!(f, "ELSE {}", self.lexeme),
-            False => write!(f, "FALSE {}", self.lexeme),
-            Fun => write!(f, "FUN {}", self.lexeme),
-            For => write!(f, "FOR {}", self.lexeme),
-            If => write!(f, "IF {}", self.lexeme),
-            Nil => write!(f, "NIL {}", self.lexeme),
-            Or => write!(f, "OR {}", self.lexeme),
-            Print => write!(f, "PRINT {}", self.lexeme),
-            Return => write!(f, "RETURN {}", self.lexeme),
-            Super => write!(f, "SUPER {}", self.lexeme),
-            This => write!(f, "THIS {}", self.lexeme),
-            True => write!(f, "TRUE {}", self.lexeme),
-            Var => write!(f, "VAR {}", self.lexeme),
-            While => write!(f, "WHILE {}", self.lexeme),
-
-            EOF => write!(f, "EOF {}", self.lexeme),
-            Error(err) => write!(f, "ERROR {} {}", self.lexeme, err),
+impl TokenKind {
+    #[must_use]
+    pub const fn lexeme(self) -> &'static str {
+        match self {
+            Self::LeftParen => "(",
+            Self::RightParen => ")",
+            Self::LeftBrace => "{",
+            Self::RightBrace => "}",
+            Self::Comma => ",",
+            Self::Dot => ".",
+            Self::Minus => "-",
+            Self::Plus => "+",
+            Self::Semicolon => ";",
+            Self::Slash => "/",
+            Self::Star => "*",
+            Self::Bang => "!",
+            Self::BangEqual => "!=",
+            Self::Equal => "=",
+            Self::EqualEqual => "==",
+            Self::Greater => ">",
+            Self::GreaterEqual => ">=",
+            Self::Less => "<",
+            Self::LessEqual => "<=",
+            Self::Identifier => "identifier",
+            Self::String => "string",
+            Self::Number(_) => "number",
+            Self::And => "and",
+            Self::Class => "class",
+            Self::Else => "else",
+            Self::False => "false",
+            Self::Fun => "fun",
+            Self::For => "for",
+            Self::If => "if",
+            Self::Nil => "nil",
+            Self::Or => "or",
+            Self::Print => "print",
+            Self::Return => "return",
+            Self::Super => "super",
+            Self::This => "this",
+            Self::True => "true",
+            Self::Var => "var",
+            Self::While => "while",
+            Self::EOF => "",
+            Self::Error(_) => "error",
         }
     }
 }
