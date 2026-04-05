@@ -1,6 +1,7 @@
 use crate::{
     error::RuntimeError,
     expression::{Expr, Literal},
+    statement::Stmt,
     token::{Token, TokenKind},
 };
 use std::fmt;
@@ -38,7 +39,23 @@ impl From<&Literal> for Value {
 pub struct Interpreter;
 
 impl Interpreter {
-    pub fn evaluate(&mut self, expr: &Expr) -> Result<Value, RuntimeError> {
+    pub fn interpret(&mut self, stmts: &[Stmt]) -> Result<(), RuntimeError> {
+        for stmt in stmts {
+            match stmt {
+                Stmt::PrintStmt(expression) => {
+                    let value = self.evaluate(expression)?;
+                    println!("{value:#?}");
+                }
+                Stmt::ExprStmt(expression) => {
+                    self.evaluate(expression)?;
+                }
+            }
+        }
+
+        Ok(())
+    }
+
+    fn evaluate(&mut self, expr: &Expr) -> Result<Value, RuntimeError> {
         match expr {
             Expr::Literal { value } => Ok(Value::from(value)),
             Expr::Grouping { expression } => self.evaluate(expression),
@@ -214,14 +231,24 @@ impl Interpreter {
 
 #[cfg(test)]
 mod tests {
-    use crate::{parser::Parser, scanner::Scanner};
+    use crate::{parser::Parser, scanner::Scanner, statement::Stmt};
 
     use super::{Interpreter, Value};
 
-    fn evaluate(source: &str) -> Value {
+    fn parse_expression(source: &str) -> crate::expression::Expr {
         let scanner = Scanner::new(source);
         let mut parser = Parser::new(source, scanner);
-        let expr = parser.parse().expect("expression should parse");
+        let program = parser.parse().expect("program should parse");
+
+        assert_eq!(program.len(), 1, "expected a single statement");
+        match program.into_iter().next().expect("statement should exist") {
+            Stmt::ExprStmt(expr) => expr,
+            Stmt::PrintStmt(_) => panic!("expected expression statement"),
+        }
+    }
+
+    fn evaluate(source: &str) -> Value {
+        let expr = parse_expression(source);
         let mut interpreter = Interpreter;
 
         interpreter
@@ -230,9 +257,7 @@ mod tests {
     }
 
     fn evaluate_error(source: &str) -> crate::error::RuntimeError {
-        let scanner = Scanner::new(source);
-        let mut parser = Parser::new(source, scanner);
-        let expr = parser.parse().expect("expression should parse");
+        let expr = parse_expression(source);
         let mut interpreter = Interpreter;
 
         interpreter
@@ -242,27 +267,27 @@ mod tests {
 
     #[test]
     fn evaluates_truthiness_for_bang() {
-        assert_eq!(evaluate("!nil"), Value::Bool(true));
+        assert_eq!(evaluate("!nil;"), Value::Bool(true));
     }
 
     #[test]
     fn evaluates_nested_equality() {
-        assert_eq!(evaluate("!(false == true)"), Value::Bool(true));
+        assert_eq!(evaluate("!(false == true);"), Value::Bool(true));
     }
 
     #[test]
     fn concatenates_strings() {
-        assert_eq!(evaluate("\"a\" + \"b\""), Value::String("ab".to_string()));
+        assert_eq!(evaluate("\"a\" + \"b\";"), Value::String("ab".to_string()));
     }
 
     #[test]
     fn evaluates_comparisons() {
-        assert_eq!(evaluate("1 < 2 == true"), Value::Bool(true));
+        assert_eq!(evaluate("1 < 2 == true;"), Value::Bool(true));
     }
 
     #[test]
     fn reports_operator_span_for_runtime_errors() {
-        let err = evaluate_error("\"a\" - \"b\"");
+        let err = evaluate_error("\"a\" - \"b\";");
 
         assert_eq!(err.msg, "Operands to '-' must be numbers.");
         assert_eq!(
@@ -274,7 +299,7 @@ mod tests {
 
     #[test]
     fn reports_plus_type_mismatch() {
-        let err = evaluate_error("\"a\" + 1");
+        let err = evaluate_error("\"a\" + 1;");
 
         assert_eq!(
             err.msg,

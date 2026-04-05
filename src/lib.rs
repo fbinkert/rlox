@@ -17,14 +17,13 @@ pub mod token;
 
 /// # Errors
 /// Returns an error if scanning, parsing, or evaluation fails
-pub fn run(src: &str) -> miette::Result<String> {
+pub fn run(src: &str) -> miette::Result<()> {
     let scanner = Scanner::new(src);
     let mut parser = Parser::new(src, scanner);
     match parser.parse() {
-        Ok(expr) => {
+        Ok(program) => {
             let mut interpreter = Interpreter;
-            match interpreter.evaluate(&expr) {
-                Ok(value) => Ok(value.to_string()),
+            match interpreter.interpret(&program) {
                 Err(e) => Err(SpannedRuntimeError {
                     src: NamedSource::new("lox", src.to_string()),
                     span: e.span,
@@ -32,6 +31,7 @@ pub fn run(src: &str) -> miette::Result<String> {
                     error: e,
                 }
                 .into()),
+                _ => Ok(()),
             }
         }
         Err(e) => Err(SpannedError {

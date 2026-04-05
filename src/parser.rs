@@ -1,11 +1,11 @@
-use std::{mem::replace, os::macos::raw::stat};
+use std::mem::replace;
 
 use miette::{SourceOffset, SourceSpan};
 
 use crate::{
     error::ParseError,
     expression::{Expr, Literal},
-    statement::{self, Stmt},
+    statement::Stmt,
     token::{Token, TokenKind},
 };
 
@@ -300,19 +300,23 @@ where
 
 #[cfg(test)]
 mod tests {
-    use crate::scanner::Scanner;
+    use crate::{scanner::Scanner, statement::Stmt};
 
     use super::*;
 
     #[test]
     fn test_parser() {
-        let expression = "(-1 + 2) * 3 >= 4 == !false";
+        let source = "(-1 + 2) * 3 >= 4 == !false;";
 
-        let scanner = Scanner::new(expression);
-        let mut parser = Parser::new(expression, scanner);
-        let parsed = parser.parse().expect("Failed to parse expression");
+        let scanner = Scanner::new(source);
+        let mut parser = Parser::new(source, scanner);
+        let parsed = parser.parse().expect("Failed to parse program");
 
         let expected_output = "(== (>= (* (group (+ (- 1) 2)) 3) 4) (! false))";
-        assert_eq!(format!("{parsed}"), expected_output);
+        assert_eq!(parsed.len(), 1);
+        match &parsed[0] {
+            Stmt::ExprStmt(expr) => assert_eq!(format!("{expr}"), expected_output),
+            Stmt::PrintStmt(_) => panic!("expected expression statement"),
+        }
     }
 }

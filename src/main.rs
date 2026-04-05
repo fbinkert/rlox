@@ -53,7 +53,7 @@ fn main() -> miette::Result<()> {
 /// Returns an error if scanning/parsing fails
 /// # Panics
 /// If the contents of the file are not valid UTF-8
-pub fn run_file(path: &Path) -> miette::Result<String> {
+pub fn run_file(path: &Path) -> miette::Result<()> {
     let source = std::fs::read_to_string(path).unwrap();
     run(&source)
 }
@@ -83,14 +83,10 @@ pub fn run_prompt() {
         }
 
         match run(src) {
-            Ok(out) => {
-                if !out.trim().is_empty() {
-                    print_block("out>", &out);
-                }
-            }
             Err(report) => {
                 eprintln!("{} {:?}", "err>".bright_red().bold(), report); //{:?} triggers miette report handler
             }
+            _ => (),
         }
     }
 }
