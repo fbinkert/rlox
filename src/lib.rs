@@ -7,6 +7,7 @@ use crate::{
     scanner::Scanner,
 };
 
+pub mod environment;
 pub mod error;
 pub mod expression;
 pub mod interpreter;
@@ -22,7 +23,7 @@ pub fn run(src: &str) -> miette::Result<()> {
     let mut parser = Parser::new(src, scanner);
     match parser.parse() {
         Ok(program) => {
-            let mut interpreter = Interpreter;
+            let mut interpreter = Interpreter::new();
             match interpreter.interpret(&program) {
                 Err(e) => Err(SpannedRuntimeError {
                     src: NamedSource::new("lox", src.to_string()),

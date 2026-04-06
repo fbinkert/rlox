@@ -45,28 +45,46 @@ where
     /// declaration* EOF ;
     fn program(&mut self) -> Result<Vec<Declaration>, ParseError> {
         let mut declarations = Vec::<Declaration>::new();
+        let mut first_error = None;
         while !self.is_at_end() {
-            declarations.push(self.declaration()?);
+            match self.declaration() {
+                Ok(declaration) => declarations.push(declaration),
+                Err(err) => {
+                    if first_error.is_none() {
+                        first_error = Some(err);
+                    }
+                }
+            }
         }
-        Ok(declarations)
+
+        first_error.map_or(Ok(declarations), Err)
     }
 
     /// varDecl | statement
     fn declaration(&mut self) -> Result<Declaration, ParseError> {
-        if self.match_tokens(&[TokenKind::Var]) {
+        let result = if self.match_tokens(&[TokenKind::Var]) {
             self.var_declaration()
         } else {
             Ok(Declaration::Stmt(self.statement()?))
+        };
+
+        if result.is_err() {
+            self.synchronize();
         }
+
+        result
     }
 
     /// "var" IDENTIFIER ( "=" expression )? ";" ;
     fn var_declaration(&mut self) -> Result<Declaration, ParseError> {
         let name = self.consume_identifier("Expected an identifier.")?;
         let initializer = if self.match_tokens(&[TokenKind::Equal]) {
-            Some(self.expression()?)
+            self.expression()?
         } else {
-            None
+            // implicit Nil
+            Expr::Literal {
+                value: Literal::Nil,
+            }
         };
 
         self.consume(
@@ -75,7 +93,7 @@ where
             Some("Add a semicolon after the declaration."),
         )?;
 
-        Ok(Declaration::VarDecl(name, initializer))
+        Ok(Declaration::VarDecl { name, initializer })
     }
 
     /// exprStmt | printStmt
@@ -109,9 +127,34 @@ where
         Ok(Stmt::ExprStmt(expression))
     }
 
-    // equality ;
+    // assignment ;
     fn expression(&mut self) -> Result<Expr, ParseError> {
-        self.equality()
+        self.assignment()
+    }
+
+    // IDENTIFIER "=" assignment | equality ;
+    fn assignment(&mut self) -> Result<Expr, ParseError> {
+        let expression = self.equality()?;
+
+        if self.match_tokens(&[TokenKind::Equal]) {
+            let value = self.assignment()?;
+
+            match expression {
+                // l-value expressions
+                Expr::Variable { name, token } => Ok(Expr::Assign {
+                    name,
+                    token,
+                    value: Box::new(value),
+                }),
+                _ => Err(ParseError {
+                    msg: "invalid assignment target".to_string(),
+                    span: self.previous.as_span(),
+                    help: None,
+                }),
+            }
+        } else {
+            Ok(expression)
+        }
     }
 
     // comparison ( ( "!=" | "==" ) comparison )* ;
@@ -207,7 +250,8 @@ where
         }
         if self.match_tokens(&[TokenKind::Identifier]) {
             return Ok(Expr::Variable {
-                name: self.previous,
+                token: self.previous,
+                name: self.previous.string_contents(self.source).to_string(),
             });
         }
         if self.match_tokens(&[TokenKind::True]) {
@@ -354,6 +398,34 @@ where
         }
     }
 
+    fn synchronize(&mut self) {
+        if self.is_at_end() {
+            return;
+        }
+
+        let _ = self.advance();
+
+        while !self.is_at_end() {
+            if self.previous.kind == TokenKind::Semicolon {
+                return;
+            }
+
+            match self.peek().kind {
+                TokenKind::Class
+                | TokenKind::Fun
+                | TokenKind::Var
+                | TokenKind::For
+                | TokenKind::If
+                | TokenKind::While
+                | TokenKind::Print
+                | TokenKind::Return => return,
+                _ => {
+                    let _ = self.advance();
+                }
+            }
+        }
+    }
+
     const fn peek(&self) -> Token {
         self.current
     }
@@ -382,7 +454,11 @@ mod tests {
             Declaration::Stmt(Stmt::ExprStmt(expr)) => {
                 assert_eq!(format!("{expr}"), expected_output)
             }
-            Declaration::Stmt(Stmt::PrintStmt(_)) | Declaration::VarDecl(_, _) => {
+            Declaration::Stmt(Stmt::PrintStmt(_))
+            | Declaration::VarDecl {
+                name: _,
+                initializer: _,
+            } => {
                 panic!("expected expression statement")
             }
         }
@@ -398,7 +474,16 @@ mod tests {
 
         assert_eq!(parsed.len(), 1);
         match &parsed[0] {
-            Declaration::VarDecl(name, None) => assert_eq!(name, "breakfast"),
+            Declaration::VarDecl { name, initializer } => {
+                assert_eq!(name, "breakfast");
+                match initializer {
+                    Expr::Literal { value } => {
+                        assert_eq!(value, &Literal::Nil)
+                    }
+                    _ => panic!("expected Nil"),
+                }
+            }
+
             _ => panic!("expected variable declaration without initializer"),
         }
     }
@@ -413,9 +498,9 @@ mod tests {
 
         assert_eq!(parsed.len(), 1);
         match &parsed[0] {
-            Declaration::VarDecl(name, Some(expr)) => {
+            Declaration::VarDecl { name, initializer } => {
                 assert_eq!(name, "breakfast");
-                assert_eq!(format!("{expr}"), "(+ 1 2)");
+                assert_eq!(format!("{initializer}"), "(+ 1 2)");
             }
             _ => panic!("expected variable declaration with initializer"),
         }
@@ -431,5 +516,26 @@ mod tests {
 
         assert_eq!(err.msg, "Expected an identifier.");
         assert_eq!(err.span, (4, 1).into());
+    }
+
+    #[test]
+    fn synchronizes_after_failed_declaration() {
+        let source = "var = 1; print 2;";
+
+        let scanner = Scanner::new(source);
+        let mut parser = Parser::new(source, scanner);
+
+        let err = parser
+            .declaration()
+            .expect_err("first declaration should fail");
+        assert_eq!(err.msg, "Expected an identifier.");
+
+        let declaration = parser
+            .declaration()
+            .expect("parser should recover to the next declaration");
+        match declaration {
+            Declaration::Stmt(Stmt::PrintStmt(expr)) => assert_eq!(format!("{expr}"), "2"),
+            _ => panic!("expected recovered print statement"),
+        }
     }
 }

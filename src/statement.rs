@@ -4,7 +4,7 @@ pub type Program = [Declaration];
 
 #[derive(Debug, Clone)]
 pub enum Declaration {
-    VarDecl(String, Option<Expr>),
+    VarDecl { name: String, initializer: Expr },
     Stmt(Stmt),
 }
 

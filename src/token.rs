@@ -87,6 +87,11 @@ impl Token {
         let lexeme = self.slice(source);
         &lexeme[1..lexeme.len() - 1]
     }
+
+    #[must_use]
+    pub fn lexeme<'src>(&self, source: &'src str) -> &'src str {
+        self.slice(source)
+    }
 }
 
 impl TokenKind {

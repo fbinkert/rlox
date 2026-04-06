@@ -1,4 +1,5 @@
 use crate::{
+    environment::Environment,
     error::RuntimeError,
     expression::{Expr, Literal},
     statement::{Declaration, Program, Stmt},
@@ -44,9 +45,20 @@ fn format_number(n: f64) -> String {
     text
 }
 
-pub struct Interpreter;
+pub struct Interpreter {
+    environment: Environment,
+}
 
 impl Interpreter {
+    #[must_use]
+    pub fn new() -> Self {
+        Self {
+            environment: Environment::new(),
+        }
+    }
+
+    /// # Errors
+    /// Raises a runtime error on error
     pub fn interpret(&mut self, program: &Program) -> Result<(), RuntimeError> {
         for declaration in program {
             match declaration {
@@ -59,14 +71,10 @@ impl Interpreter {
                         self.evaluate(expression)?;
                     }
                 },
-                Declaration::VarDecl(name, maybe_initializer) => match maybe_initializer {
-                    Some(initializer) => {
-                        todo!()
-                    }
-                    None => {
-                        todo!()
-                    }
-                },
+                Declaration::VarDecl { name, initializer } => {
+                    let value = self.evaluate(initializer)?;
+                    self.environment.define(name.clone(), value);
+                }
             }
         }
 
@@ -75,8 +83,31 @@ impl Interpreter {
 
     fn evaluate(&mut self, expr: &Expr) -> Result<Value, RuntimeError> {
         match expr {
-            Expr::Variable { name } => {
-                todo!()
+            Expr::Assign { name, token, value } => {
+                if self.environment.contains(name) {
+                    let value = self.evaluate(value)?;
+                    self.environment.assign(name.clone(), value.clone());
+                    Ok(value)
+                } else {
+                    Err(RuntimeError {
+                        msg: "Undefined variable".to_string(),
+                        span: token.as_span(),
+                        help: None,
+                    })
+                }
+            }
+            Expr::Variable { name, token } => {
+                let maybe_value = self.environment.get(name);
+                maybe_value.map_or_else(
+                    || {
+                        Err(RuntimeError {
+                            msg: "Undefined variable".to_string(),
+                            span: token.as_span(),
+                            help: None,
+                        })
+                    },
+                    |value| Ok(value.clone()),
+                )
             }
             Expr::Literal { value } => Ok(Value::from(value)),
             Expr::Grouping { expression } => self.evaluate(expression),
@@ -268,7 +299,11 @@ mod tests {
         assert_eq!(program.len(), 1, "expected a single statement");
         match program.into_iter().next().expect("statement should exist") {
             Declaration::Stmt(Stmt::ExprStmt(expr)) => expr,
-            Declaration::Stmt(Stmt::PrintStmt(_)) | Declaration::VarDecl(_, _) => {
+            Declaration::Stmt(Stmt::PrintStmt(_))
+            | Declaration::VarDecl {
+                name: _,
+                initializer: _,
+            } => {
                 panic!("expected expression statement")
             }
         }
@@ -276,7 +311,7 @@ mod tests {
 
     fn evaluate(source: &str) -> Value {
         let expr = parse_expression(source);
-        let mut interpreter = Interpreter;
+        let mut interpreter = Interpreter::new();
 
         interpreter
             .evaluate(&expr)
@@ -285,7 +320,7 @@ mod tests {
 
     fn evaluate_error(source: &str) -> crate::error::RuntimeError {
         let expr = parse_expression(source);
-        let mut interpreter = Interpreter;
+        let mut interpreter = Interpreter::new();
 
         interpreter
             .evaluate(&expr)

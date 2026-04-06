@@ -2,7 +2,7 @@ use std::fmt;
 
 use crate::token::Token;
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum Literal {
     Number(f64),
     String(String),
@@ -23,6 +23,11 @@ impl fmt::Display for Literal {
 
 #[derive(Debug, Clone)]
 pub enum Expr {
+    Assign {
+        name: String,
+        token: Token,
+        value: Box<Self>,
+    },
     Binary {
         left: Box<Self>,
         operator: Token,
@@ -39,7 +44,8 @@ pub enum Expr {
         right: Box<Self>,
     },
     Variable {
-        name: Token,
+        name: String,
+        token: Token,
     },
 }
 
@@ -54,7 +60,8 @@ impl fmt::Display for Expr {
             Self::Grouping { expression } => parenthesize(f, "group", &[expression]),
             Self::Literal { value } => write!(f, "{value}"),
             Self::Unary { operator, right } => parenthesize(f, operator.kind.lexeme(), &[right]),
-            Self::Variable { name } => write!(f, "{}", name.kind.lexeme()),
+            Self::Assign { name, token, value } => parenthesize(f, name, &[value]),
+            Self::Variable { name, token } => write!(f, "{}", name),
         }
     }
 }
