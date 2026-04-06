@@ -5,7 +5,7 @@ use miette::{SourceOffset, SourceSpan};
 use crate::{
     error::ParseError,
     expression::{Expr, Literal},
-    statement::{Declaration, Stmt},
+    statement::Stmt,
     token::{Token, TokenKind},
 };
 
@@ -38,13 +38,13 @@ where
 
     /// # Errors
     /// Returns a `ParseError` when the parser fails
-    pub fn parse(&mut self) -> Result<Vec<Declaration>, ParseError> {
+    pub fn parse(&mut self) -> Result<Vec<Stmt>, ParseError> {
         self.program()
     }
 
     /// declaration* EOF ;
-    fn program(&mut self) -> Result<Vec<Declaration>, ParseError> {
-        let mut declarations = Vec::<Declaration>::new();
+    fn program(&mut self) -> Result<Vec<Stmt>, ParseError> {
+        let mut declarations = Vec::<Stmt>::new();
         let mut first_error = None;
         while !self.is_at_end() {
             match self.declaration() {
@@ -61,11 +61,11 @@ where
     }
 
     /// varDecl | statement
-    fn declaration(&mut self) -> Result<Declaration, ParseError> {
+    fn declaration(&mut self) -> Result<Stmt, ParseError> {
         let result = if self.match_tokens(&[TokenKind::Var]) {
             self.var_declaration()
         } else {
-            Ok(Declaration::Stmt(self.statement()?))
+            Ok(self.statement()?)
         };
 
         if result.is_err() {
@@ -76,7 +76,7 @@ where
     }
 
     /// "var" IDENTIFIER ( "=" expression )? ";" ;
-    fn var_declaration(&mut self) -> Result<Declaration, ParseError> {
+    fn var_declaration(&mut self) -> Result<Stmt, ParseError> {
         let name = self.consume_identifier("Expected an identifier.")?;
         let initializer = if self.match_tokens(&[TokenKind::Equal]) {
             self.expression()?
@@ -93,13 +93,15 @@ where
             Some("Add a semicolon after the declaration."),
         )?;
 
-        Ok(Declaration::VarDecl { name, initializer })
+        Ok(Stmt::VarDecl { name, initializer })
     }
 
-    /// exprStmt | printStmt
+    /// exprStmt | printStmt | block
     fn statement(&mut self) -> Result<Stmt, ParseError> {
         if self.match_tokens(&[TokenKind::Print]) {
             self.print_statement()
+        } else if self.match_tokens(&[TokenKind::LeftBrace]) {
+            self.block()
         } else {
             self.expression_statement()
         }
@@ -125,6 +127,17 @@ where
             Some("Add a semicolon after the expression statement."),
         )?;
         Ok(Stmt::ExprStmt(expression))
+    }
+
+    /// "{" declaration* "}" ;
+    fn block(&mut self) -> Result<Stmt, ParseError> {
+        let mut statements = Vec::new();
+
+        while !self.check(TokenKind::RightBrace) && !self.is_at_end() {
+            statements.push(self.declaration()?);
+        }
+        self.consume(TokenKind::RightBrace, "Expected '}' after block.", None)?;
+        Ok(Stmt::Block(statements))
     }
 
     // assignment ;
@@ -251,7 +264,7 @@ where
         if self.match_tokens(&[TokenKind::Identifier]) {
             return Ok(Expr::Variable {
                 token: self.previous,
-                name: self.previous.string_contents(self.source).to_string(),
+                name: self.previous.lexeme(self.source).to_string(),
             });
         }
         if self.match_tokens(&[TokenKind::True]) {
@@ -433,10 +446,7 @@ where
 
 #[cfg(test)]
 mod tests {
-    use crate::{
-        scanner::Scanner,
-        statement::{Declaration, Stmt},
-    };
+    use crate::{scanner::Scanner, statement::Stmt};
 
     use super::*;
 
@@ -451,11 +461,12 @@ mod tests {
         let expected_output = "(== (>= (* (group (+ (- 1) 2)) 3) 4) (! false))";
         assert_eq!(parsed.len(), 1);
         match &parsed[0] {
-            Declaration::Stmt(Stmt::ExprStmt(expr)) => {
+            Stmt::ExprStmt(expr) => {
                 assert_eq!(format!("{expr}"), expected_output)
             }
-            Declaration::Stmt(Stmt::PrintStmt(_))
-            | Declaration::VarDecl {
+            Stmt::PrintStmt(_)
+            | Stmt::Block(_)
+            | Stmt::VarDecl {
                 name: _,
                 initializer: _,
             } => {
@@ -474,7 +485,7 @@ mod tests {
 
         assert_eq!(parsed.len(), 1);
         match &parsed[0] {
-            Declaration::VarDecl { name, initializer } => {
+            Stmt::VarDecl { name, initializer } => {
                 assert_eq!(name, "breakfast");
                 match initializer {
                     Expr::Literal { value } => {
@@ -498,7 +509,7 @@ mod tests {
 
         assert_eq!(parsed.len(), 1);
         match &parsed[0] {
-            Declaration::VarDecl { name, initializer } => {
+            Stmt::VarDecl { name, initializer } => {
                 assert_eq!(name, "breakfast");
                 assert_eq!(format!("{initializer}"), "(+ 1 2)");
             }
@@ -534,7 +545,7 @@ mod tests {
             .declaration()
             .expect("parser should recover to the next declaration");
         match declaration {
-            Declaration::Stmt(Stmt::PrintStmt(expr)) => assert_eq!(format!("{expr}"), "2"),
+            Stmt::PrintStmt(expr) => assert_eq!(format!("{expr}"), "2"),
             _ => panic!("expected recovered print statement"),
         }
     }

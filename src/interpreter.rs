@@ -2,10 +2,10 @@ use crate::{
     environment::Environment,
     error::RuntimeError,
     expression::{Expr, Literal},
-    statement::{Declaration, Program, Stmt},
+    statement::Stmt,
     token::{Token, TokenKind},
 };
-use std::fmt;
+use std::{cell::RefCell, fmt, rc::Rc};
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum Value {
@@ -46,34 +46,35 @@ fn format_number(n: f64) -> String {
 }
 
 pub struct Interpreter {
-    environment: Environment,
+    environment: Rc<RefCell<Environment>>,
 }
 
 impl Interpreter {
     #[must_use]
     pub fn new() -> Self {
         Self {
-            environment: Environment::new(),
+            environment: Rc::new(RefCell::new(Environment::new())),
         }
     }
 
     /// # Errors
     /// Raises a runtime error on error
-    pub fn interpret(&mut self, program: &Program) -> Result<(), RuntimeError> {
-        for declaration in program {
-            match declaration {
-                Declaration::Stmt(stmt) => match stmt {
-                    Stmt::PrintStmt(expression) => {
-                        let value = self.evaluate(expression)?;
-                        println!("{value}");
-                    }
-                    Stmt::ExprStmt(expression) => {
-                        self.evaluate(expression)?;
-                    }
-                },
-                Declaration::VarDecl { name, initializer } => {
+    pub fn interpret(&mut self, program: &[Stmt]) -> Result<(), RuntimeError> {
+        for statement in program {
+            match statement {
+                Stmt::PrintStmt(expression) => {
+                    let value = self.evaluate(expression)?;
+                    println!("{value}");
+                }
+                Stmt::ExprStmt(expression) => {
+                    self.evaluate(expression)?;
+                }
+                Stmt::VarDecl { name, initializer } => {
                     let value = self.evaluate(initializer)?;
-                    self.environment.define(name.clone(), value);
+                    self.environment.borrow_mut().define(name.clone(), value);
+                }
+                Stmt::Block(stmts) => {
+                    self.execute_block(stmts, Environment::new_enclosed(self.environment.clone()))?;
                 }
             }
         }
@@ -81,12 +82,22 @@ impl Interpreter {
         Ok(())
     }
 
+    fn execute_block(&mut self, stmts: &[Stmt], env: Environment) -> Result<(), RuntimeError> {
+        let parent_env = self.environment.clone();
+        self.environment = Rc::new(RefCell::new(env));
+        let result = self.interpret(stmts);
+        self.environment = parent_env;
+        result
+    }
+
     fn evaluate(&mut self, expr: &Expr) -> Result<Value, RuntimeError> {
         match expr {
             Expr::Assign { name, token, value } => {
-                if self.environment.contains(name) {
+                if self.environment.borrow_mut().contains(name) {
                     let value = self.evaluate(value)?;
-                    self.environment.assign(name.clone(), value.clone());
+                    self.environment
+                        .borrow_mut()
+                        .assign(name.clone(), value.clone());
                     Ok(value)
                 } else {
                     Err(RuntimeError {
@@ -97,7 +108,7 @@ impl Interpreter {
                 }
             }
             Expr::Variable { name, token } => {
-                let maybe_value = self.environment.get(name);
+                let maybe_value = self.environment.borrow_mut().get(name);
                 maybe_value.map_or_else(
                     || {
                         Err(RuntimeError {
@@ -106,7 +117,7 @@ impl Interpreter {
                             help: None,
                         })
                     },
-                    |value| Ok(value.clone()),
+                    Ok,
                 )
             }
             Expr::Literal { value } => Ok(Value::from(value)),
@@ -283,11 +294,7 @@ impl Interpreter {
 
 #[cfg(test)]
 mod tests {
-    use crate::{
-        parser::Parser,
-        scanner::Scanner,
-        statement::{Declaration, Stmt},
-    };
+    use crate::{parser::Parser, scanner::Scanner, statement::Stmt};
 
     use super::{Interpreter, Value};
 
@@ -298,9 +305,10 @@ mod tests {
 
         assert_eq!(program.len(), 1, "expected a single statement");
         match program.into_iter().next().expect("statement should exist") {
-            Declaration::Stmt(Stmt::ExprStmt(expr)) => expr,
-            Declaration::Stmt(Stmt::PrintStmt(_))
-            | Declaration::VarDecl {
+            Stmt::ExprStmt(expr) => expr,
+            Stmt::PrintStmt(_)
+            | Stmt::Block(_)
+            | Stmt::VarDecl {
                 name: _,
                 initializer: _,
             } => {
@@ -325,6 +333,19 @@ mod tests {
         interpreter
             .evaluate(&expr)
             .expect_err("expression should fail at runtime")
+    }
+
+    fn interpret_program(source: &str) -> Interpreter {
+        let scanner = Scanner::new(source);
+        let mut parser = Parser::new(source, scanner);
+        let program = parser.parse().expect("program should parse");
+        let mut interpreter = Interpreter::new();
+
+        interpreter
+            .interpret(&program)
+            .expect("program should interpret");
+
+        interpreter
     }
 
     #[test]
@@ -366,6 +387,38 @@ mod tests {
         assert_eq!(
             err.msg,
             "Operands to '+' must be two numbers or two strings."
+        );
+    }
+
+    #[test]
+    fn block_can_read_outer_variable() {
+        let scanner = Scanner::new("var a = 1; { a; }");
+        let mut parser = Parser::new("var a = 1; { a; }", scanner);
+        let program = parser.parse().expect("program should parse");
+        let mut interpreter = Interpreter::new();
+
+        interpreter
+            .interpret(&program)
+            .expect("block should read outer variable");
+    }
+
+    #[test]
+    fn assignment_in_block_updates_outer_variable() {
+        let interpreter = interpret_program("var a = 1; { a = 2; }");
+
+        assert_eq!(
+            interpreter.environment.borrow().get("a"),
+            Some(Value::Number(2.0))
+        );
+    }
+
+    #[test]
+    fn block_variable_shadowing_does_not_modify_outer_variable() {
+        let interpreter = interpret_program("var a = 1; { var a = 2; }");
+
+        assert_eq!(
+            interpreter.environment.borrow().get("a"),
+            Some(Value::Number(1.0))
         );
     }
 }
