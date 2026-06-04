@@ -98,7 +98,9 @@ where
 
     /// IfStmt | printStmt | block | exprStmt
     fn statement(&mut self) -> Result<Stmt, ParseError> {
-        if self.match_tokens(&[TokenKind::If]) {
+        if self.match_tokens(&[TokenKind::For]) {
+            self.for_statement()
+        } else if self.match_tokens(&[TokenKind::If]) {
             self.if_statement()
         } else if self.match_tokens(&[TokenKind::Print]) {
             self.print_statement()
@@ -111,20 +113,71 @@ where
         }
     }
 
+    fn for_statement(&mut self) -> Result<Stmt, ParseError> {
+        self.consume(TokenKind::LeftParen, "Expected '(' after 'for'.", None)?;
+
+        let initializer = if self.match_tokens(&[TokenKind::Semicolon]) {
+            None
+        } else if self.match_tokens(&[TokenKind::Var]) {
+            Some(self.var_declaration()?)
+        } else {
+            Some(self.expression_statement()?)
+        };
+
+        let condition = (!self.check(TokenKind::Semicolon))
+            .then(|| self.expression())
+            .transpose()?;
+
+        self.consume(
+            TokenKind::Semicolon,
+            "Expected ';' after loop condition.",
+            None,
+        )?;
+
+        let increment = (!self.check(TokenKind::RightParen))
+            .then(|| self.expression())
+            .transpose()?;
+
+        self.consume(
+            TokenKind::RightParen,
+            "Expected ')' after for clauses.",
+            None,
+        )?;
+
+        let mut body = self.statement()?;
+
+        if let Some(inc) = increment {
+            body = Stmt::Block(vec![body, Stmt::ExprStmt(inc)]);
+        }
+
+        body = Stmt::WhileStmt {
+            condition: condition.unwrap_or(Expr::Literal {
+                value: Literal::Boolean(true),
+            }),
+            body: Box::new(body),
+        };
+
+        if let Some(init) = initializer {
+            body = Stmt::Block(vec![init, body]);
+        }
+
+        Ok(body)
+    }
+
     /// "if" "(" expression ")" statement  "else" statement
     fn if_statement(&mut self) -> Result<Stmt, ParseError> {
         self.consume(
             TokenKind::LeftParen,
             "Expected a left parenthesis after if statement.",
             Some("Add parenthesis after if statement."),
-        );
+        )?;
 
         let condition = self.expression()?;
         self.consume(
             TokenKind::RightParen,
             "Expected a right parenthesis after if statement.",
             Some("Add closing parenthesis after condtidion."),
-        );
+        )?;
 
         let then_branch = Box::new(self.statement()?);
 
@@ -597,6 +650,57 @@ mod tests {
                 assert_eq!(format!("{initializer}"), "(+ 1 2)");
             }
             _ => panic!("expected variable declaration with initializer"),
+        }
+    }
+
+    #[test]
+    fn desugars_for_loop_into_initializer_and_while() {
+        let source = "for (var i = 0; i < 3; i = i + 1) print i;";
+
+        let scanner = Scanner::new(source);
+        let mut parser = Parser::new(source, scanner);
+        let parsed = parser.parse().expect("Failed to parse program");
+
+        assert_eq!(parsed.len(), 1);
+        match &parsed[0] {
+            Stmt::Block(statements) => {
+                assert_eq!(statements.len(), 2);
+
+                match &statements[0] {
+                    Stmt::VarDecl { name, initializer } => {
+                        assert_eq!(name, "i");
+                        assert_eq!(format!("{initializer}"), "0");
+                    }
+                    _ => panic!("expected loop initializer"),
+                }
+
+                match &statements[1] {
+                    Stmt::WhileStmt { condition, body } => {
+                        assert_eq!(format!("{condition}"), "(< i 3)");
+
+                        match body.as_ref() {
+                            Stmt::Block(loop_body) => {
+                                assert_eq!(loop_body.len(), 2);
+                                match &loop_body[0] {
+                                    Stmt::PrintStmt(expr) => {
+                                        assert_eq!(format!("{expr}"), "i");
+                                    }
+                                    _ => panic!("expected original loop body"),
+                                }
+                                match &loop_body[1] {
+                                    Stmt::ExprStmt(expr) => {
+                                        assert_eq!(format!("{expr}"), "(i (+ i 1))");
+                                    }
+                                    _ => panic!("expected increment expression"),
+                                }
+                            }
+                            _ => panic!("expected increment to be appended to loop body"),
+                        }
+                    }
+                    _ => panic!("expected desugared while loop"),
+                }
+            }
+            _ => panic!("expected desugared for loop block"),
         }
     }
 

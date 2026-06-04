@@ -87,8 +87,7 @@ impl Interpreter {
                 self.evaluate(expression)?;
             }
             Stmt::WhileStmt { condition, body } => {
-                let val = self.evaluate(condition)?;
-                while Self::is_truthy(&val) {
+                while Self::is_truthy(&self.evaluate(condition)?) {
                     self.execute(body)?;
                 }
             }
@@ -459,6 +458,31 @@ mod tests {
             interpreter.environment.borrow().get("a"),
             Some(Value::Number(2.0))
         );
+    }
+
+    #[test]
+    fn for_loop_rechecks_condition_before_running_next_iteration() {
+        let interpreter = interpret_program(
+            "var i = 0; for (; i < 2; i = i + 1) { if (i == 2) boom; }",
+        );
+
+        assert_eq!(
+            interpreter.environment.borrow().get("i"),
+            Some(Value::Number(2.0))
+        );
+    }
+
+    #[test]
+    fn for_loop_initializer_is_scoped_to_the_loop() {
+        let scanner = Scanner::new("for (var i = 0; i < 1; i = i + 1) print i; i;");
+        let mut parser = Parser::new("for (var i = 0; i < 1; i = i + 1) print i; i;", scanner);
+        let program = parser.parse().expect("program should parse");
+        let mut interpreter = Interpreter::new();
+        let err = interpreter
+            .interpret(&program)
+            .expect_err("loop variable should not escape its scope");
+
+        assert_eq!(err.msg, "Undefined variable");
     }
 
     #[test]
