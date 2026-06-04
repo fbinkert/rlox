@@ -86,6 +86,12 @@ impl Interpreter {
             Stmt::ExprStmt(expression) => {
                 self.evaluate(expression)?;
             }
+            Stmt::WhileStmt { condition, body } => {
+                let val = self.evaluate(condition)?;
+                while Self::is_truthy(&val) {
+                    self.execute(body)?;
+                }
+            }
             Stmt::VarDecl { name, initializer } => {
                 let value = self.evaluate(initializer)?;
                 self.environment.borrow_mut().define(name.clone(), value);
@@ -346,6 +352,10 @@ mod tests {
                 condition: _,
                 then_branch: _,
                 else_branch: _,
+            }
+            | Stmt::WhileStmt {
+                condition: _,
+                body: _,
             }
             | Stmt::VarDecl {
                 name: _,

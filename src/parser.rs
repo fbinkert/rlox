@@ -4,8 +4,8 @@ use miette::{SourceOffset, SourceSpan};
 
 use crate::{
     error::ParseError,
-    expression::{self, Expr, Literal},
-    statement::Stmt,
+    expression::{Expr, Literal},
+    statement::{self, Stmt},
     token::{Token, TokenKind},
 };
 
@@ -102,6 +102,8 @@ where
             self.if_statement()
         } else if self.match_tokens(&[TokenKind::Print]) {
             self.print_statement()
+        } else if self.match_tokens(&[TokenKind::While]) {
+            self.while_statement()
         } else if self.match_tokens(&[TokenKind::LeftBrace]) {
             self.block()
         } else {
@@ -147,6 +149,15 @@ where
             Some("Add a semicolon after the print statement."),
         )?;
         Ok(Stmt::PrintStmt(expression))
+    }
+
+    /// "while" "(" expression ")" statement
+    fn while_statement(&mut self) -> Result<Stmt, ParseError> {
+        self.consume(TokenKind::LeftParen, "Expected '(' after 'while'.", None)?;
+        let condition = self.expression()?;
+        self.consume(TokenKind::RightParen, "Expected ')' after condition.", None)?;
+        let body = Box::new(self.statement()?);
+        Ok(Stmt::WhileStmt { condition, body })
     }
 
     /// expression ";" ;
@@ -532,6 +543,10 @@ mod tests {
                 condition: _,
                 then_branch: _,
                 else_branch: _,
+            }
+            | Stmt::WhileStmt {
+                condition: _,
+                body: _,
             }
             | Stmt::Block(_)
             | Stmt::VarDecl {
