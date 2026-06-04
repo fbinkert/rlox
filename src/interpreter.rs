@@ -57,25 +57,41 @@ impl Interpreter {
         }
     }
 
-    /// # Errors
-    /// Raises a runtime error on error
     pub fn interpret(&mut self, program: &[Stmt]) -> Result<(), RuntimeError> {
         for statement in program {
-            match statement {
-                Stmt::PrintStmt(expression) => {
-                    let value = self.evaluate(expression)?;
-                    println!("{value}");
+            self.execute(statement)?;
+        }
+        Ok(())
+    }
+
+    /// # Errors
+    /// Raises a runtime error on error
+    pub fn execute(&mut self, statement: &Stmt) -> Result<(), RuntimeError> {
+        match statement {
+            Stmt::IfStmt {
+                condition,
+                then_branch,
+                else_branch,
+            } => {
+                if Self::is_truthy(&self.evaluate(condition)?) {
+                    self.execute(then_branch)?;
+                } else if let Some(branch) = else_branch {
+                    self.execute(branch)?;
                 }
-                Stmt::ExprStmt(expression) => {
-                    self.evaluate(expression)?;
-                }
-                Stmt::VarDecl { name, initializer } => {
-                    let value = self.evaluate(initializer)?;
-                    self.environment.borrow_mut().define(name.clone(), value);
-                }
-                Stmt::Block(stmts) => {
-                    self.execute_block(stmts, Environment::new_enclosed(self.environment.clone()))?;
-                }
+            }
+            Stmt::PrintStmt(expression) => {
+                let value = self.evaluate(expression)?;
+                println!("{value}");
+            }
+            Stmt::ExprStmt(expression) => {
+                self.evaluate(expression)?;
+            }
+            Stmt::VarDecl { name, initializer } => {
+                let value = self.evaluate(initializer)?;
+                self.environment.borrow_mut().define(name.clone(), value);
+            }
+            Stmt::Block(stmts) => {
+                self.execute_block(stmts, Environment::new_enclosed(self.environment.clone()))?;
             }
         }
 
@@ -93,7 +109,7 @@ impl Interpreter {
     fn evaluate(&mut self, expr: &Expr) -> Result<Value, RuntimeError> {
         match expr {
             Expr::Assign { name, token, value } => {
-                if self.environment.borrow_mut().contains(name) {
+                if self.environment.borrow().contains(name) {
                     let value = self.evaluate(value)?;
                     self.environment
                         .borrow_mut()
@@ -108,7 +124,7 @@ impl Interpreter {
                 }
             }
             Expr::Variable { name, token } => {
-                let maybe_value = self.environment.borrow_mut().get(name);
+                let maybe_value = self.environment.borrow().get(name);
                 maybe_value.map_or_else(
                     || {
                         Err(RuntimeError {
@@ -122,6 +138,24 @@ impl Interpreter {
             }
             Expr::Literal { value } => Ok(Value::from(value)),
             Expr::Grouping { expression } => self.evaluate(expression),
+            Expr::Logical {
+                left,
+                operator,
+                right,
+            } => {
+                let left = self.evaluate(left)?;
+                let short_circuit = match operator.kind {
+                    TokenKind::Or => Self::is_truthy(&left),
+                    TokenKind::And => !Self::is_truthy(&left),
+                    _ => unreachable!("invalid logical operator"),
+                };
+
+                if short_circuit {
+                    Ok(left)
+                } else {
+                    self.evaluate(right)
+                }
+            }
             Expr::Unary { operator, right } => {
                 let result = self.evaluate(right)?;
 
@@ -308,6 +342,11 @@ mod tests {
             Stmt::ExprStmt(expr) => expr,
             Stmt::PrintStmt(_)
             | Stmt::Block(_)
+            | Stmt::IfStmt {
+                condition: _,
+                then_branch: _,
+                else_branch: _,
+            }
             | Stmt::VarDecl {
                 name: _,
                 initializer: _,

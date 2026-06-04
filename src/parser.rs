@@ -4,7 +4,7 @@ use miette::{SourceOffset, SourceSpan};
 
 use crate::{
     error::ParseError,
-    expression::{Expr, Literal},
+    expression::{self, Expr, Literal},
     statement::Stmt,
     token::{Token, TokenKind},
 };
@@ -96,15 +96,46 @@ where
         Ok(Stmt::VarDecl { name, initializer })
     }
 
-    /// exprStmt | printStmt | block
+    /// IfStmt | printStmt | block | exprStmt
     fn statement(&mut self) -> Result<Stmt, ParseError> {
-        if self.match_tokens(&[TokenKind::Print]) {
+        if self.match_tokens(&[TokenKind::If]) {
+            self.if_statement()
+        } else if self.match_tokens(&[TokenKind::Print]) {
             self.print_statement()
         } else if self.match_tokens(&[TokenKind::LeftBrace]) {
             self.block()
         } else {
             self.expression_statement()
         }
+    }
+
+    /// "if" "(" expression ")" statement  "else" statement
+    fn if_statement(&mut self) -> Result<Stmt, ParseError> {
+        self.consume(
+            TokenKind::LeftParen,
+            "Expected a left parenthesis after if statement.",
+            Some("Add parenthesis after if statement."),
+        );
+
+        let condition = self.expression()?;
+        self.consume(
+            TokenKind::RightParen,
+            "Expected a right parenthesis after if statement.",
+            Some("Add closing parenthesis after condtidion."),
+        );
+
+        let then_branch = Box::new(self.statement()?);
+
+        let else_branch = self
+            .match_tokens(&[TokenKind::Else])
+            .then(|| self.statement().map(Box::new))
+            .transpose()?;
+
+        Ok(Stmt::IfStmt {
+            condition,
+            then_branch,
+            else_branch,
+        })
     }
 
     /// "print" expression ";" ;
@@ -145,9 +176,9 @@ where
         self.assignment()
     }
 
-    // IDENTIFIER "=" assignment | equality ;
+    // IDENTIFIER "=" assignment | assignment | logic_or;
     fn assignment(&mut self) -> Result<Expr, ParseError> {
-        let expression = self.equality()?;
+        let expression = self.logic_or()?;
 
         if self.match_tokens(&[TokenKind::Equal]) {
             let value = self.assignment()?;
@@ -168,6 +199,38 @@ where
         } else {
             Ok(expression)
         }
+    }
+
+    // logic_and ( "or"  logic_and )
+    fn logic_or(&mut self) -> Result<Expr, ParseError> {
+        let mut expr = self.logic_and()?;
+
+        while self.match_tokens(&[TokenKind::Or]) {
+            let operator = self.previous;
+            let right = Box::new(self.logic_and()?);
+            expr = Expr::Logical {
+                left: Box::new(expr),
+                operator,
+                right,
+            }
+        }
+        Ok(expr)
+    }
+
+    // equality ( "and" equality )
+    fn logic_and(&mut self) -> Result<Expr, ParseError> {
+        let mut expr = self.equality()?;
+
+        while self.match_tokens(&[TokenKind::And]) {
+            let operator = self.previous;
+            let right = Box::new(self.equality()?);
+            expr = Expr::Logical {
+                left: Box::new(expr),
+                operator,
+                right,
+            }
+        }
+        Ok(expr)
     }
 
     // comparison ( ( "!=" | "==" ) comparison )* ;
@@ -465,6 +528,11 @@ mod tests {
                 assert_eq!(format!("{expr}"), expected_output)
             }
             Stmt::PrintStmt(_)
+            | Stmt::IfStmt {
+                condition: _,
+                then_branch: _,
+                else_branch: _,
+            }
             | Stmt::Block(_)
             | Stmt::VarDecl {
                 name: _,

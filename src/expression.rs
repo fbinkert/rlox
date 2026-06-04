@@ -39,6 +39,11 @@ pub enum Expr {
     Literal {
         value: Literal,
     },
+    Logical {
+        left: Box<Self>,
+        operator: Token,
+        right: Box<Self>,
+    },
     Unary {
         operator: Token,
         right: Box<Self>,
@@ -57,11 +62,16 @@ impl fmt::Display for Expr {
                 operator,
                 right,
             } => parenthesize(f, operator.kind.lexeme(), &[left, right]),
+            Self::Logical {
+                left,
+                operator,
+                right,
+            } => parenthesize(f, operator.kind.lexeme(), &[left, right]),
             Self::Grouping { expression } => parenthesize(f, "group", &[expression]),
             Self::Literal { value } => write!(f, "{value}"),
             Self::Unary { operator, right } => parenthesize(f, operator.kind.lexeme(), &[right]),
             Self::Assign { name, token, value } => parenthesize(f, name, &[value]),
-            Self::Variable { name, token } => write!(f, "{}", name),
+            Self::Variable { name, token } => write!(f, "{name}"),
         }
     }
 }
