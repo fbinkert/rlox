@@ -65,7 +65,7 @@ where
         let result = if self.match_tokens(&[TokenKind::Var]) {
             self.var_declaration()
         } else {
-            Ok(self.statement()?)
+            self.statement()
         };
 
         if result.is_err() {
@@ -96,7 +96,7 @@ where
         Ok(Stmt::VarDecl { name, initializer })
     }
 
-    /// IfStmt | printStmt | block | exprStmt
+    /// forStmt | ifStmt | printStmt | whileStmt | block | exprStmt
     fn statement(&mut self) -> Result<Stmt, ParseError> {
         if self.match_tokens(&[TokenKind::For]) {
             self.for_statement()
@@ -113,6 +113,7 @@ where
         }
     }
 
+    /// "for" "(" ( varDecl | exprStmt | ";" ) expression? ";" expression? ")" statement ;
     fn for_statement(&mut self) -> Result<Stmt, ParseError> {
         self.consume(TokenKind::LeftParen, "Expected '(' after 'for'.", None)?;
 

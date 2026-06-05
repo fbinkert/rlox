@@ -462,9 +462,8 @@ mod tests {
 
     #[test]
     fn for_loop_rechecks_condition_before_running_next_iteration() {
-        let interpreter = interpret_program(
-            "var i = 0; for (; i < 2; i = i + 1) { if (i == 2) boom; }",
-        );
+        let interpreter =
+            interpret_program("var i = 0; for (; i < 2; i = i + 1) { if (i == 2) boom; }");
 
         assert_eq!(
             interpreter.environment.borrow().get("i"),
